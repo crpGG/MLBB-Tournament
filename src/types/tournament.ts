@@ -1,15 +1,5 @@
 export type UserRole = 'admin' | 'panitia' | 'pengunjung';
 
-export interface UserAccount {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  phone: string;
-  active: boolean;
-  createdAt: string;
-}
-
 export type MLBBHeroRole = 'EXP Lane' | 'Jungler' | 'Mid Lane' | 'Gold Lane' | 'Roamer';
 
 export interface Player {
@@ -21,6 +11,7 @@ export interface Player {
   tierRank: 'Warrior - Elite' | 'Master - Grandmaster' | 'Epic' | 'Legend' | 'Mythic' | 'Mythical Honor' | 'Mythical Glory' | 'Mythical Immortal';
   teamId?: string;
   signatureHeroes: string[];
+  photo?: string; // data URL (antrean) atau URL Storage (setelah disetujui)
 }
 
 export interface Team {
@@ -32,6 +23,7 @@ export interface Team {
   city: string;
   memberPlayerIds: string[];
   createdAt: string;
+  logo?: string;
 }
 
 export type BracketFormat =
@@ -122,6 +114,9 @@ export interface TournamentRegistration {
   verifiedBy?: string;
   verifiedAt?: string;
   registeredAt: string;
+  // Hanya pada pendaftaran dari pengunjung: tim/pemain baru yang masuk database saat disetujui.
+  newTeam?: Team;
+  newPlayers?: Player[];
 }
 
 export interface PlayerMatchStat {
@@ -176,4 +171,14 @@ export interface StandingRow {
   gameLosses: number;
   gameDiff: number;
   points: number;
+}
+
+/** Pendaftaran tim/player ke Database (bukan ke turnamen). Masuk antrean, staf yang menyetujui. */
+export interface DbSubmission {
+  id: string;
+  kind: 'team' | 'player';
+  team?: Team; // hanya kind 'team'; whatsapp kapten ikut di sini
+  players: Player[]; // player baru (yang sudah ada di database dirujuk lewat team.memberPlayerIds)
+  whatsapp: string; // kontak konfirmasi (khusus staf)
+  submittedAt: string;
 }

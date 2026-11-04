@@ -4,7 +4,6 @@ import {
   Team,
   Tournament,
   TournamentRegistration,
-  UserAccount,
 } from '../types/tournament';
 
 // Clean SVG Data URI for Static QRIS Preview & Proof Previews
@@ -57,45 +56,6 @@ export const SAMPLE_PAYMENT_PROOF_URI = `data:image/svg+xml;utf8,${encodeURIComp
   <text x="32" y="196" fill="#64748B" font-family="monospace" font-size="10">REF: 2026101499281741</text>
 </svg>
 `)}`;
-
-export const INITIAL_USERS: UserAccount[] = [
-  {
-    id: 'usr-admin-1',
-    name: 'Geraldy Sacty (Super Admin)',
-    email: 'sacty.geraldy@gmail.com',
-    role: 'admin',
-    phone: '0812-8899-0011',
-    active: true,
-    createdAt: '2026-09-01',
-  },
-  {
-    id: 'usr-panitia-1',
-    name: 'Rizky Pratama (Ketua Panitia)',
-    email: 'rizky.panitia@arenadawn.id',
-    role: 'panitia',
-    phone: '0813-4455-6677',
-    active: true,
-    createdAt: '2026-09-10',
-  },
-  {
-    id: 'usr-panitia-2',
-    name: 'Nadia Putri (Wasit & Verifikator)',
-    email: 'nadia.referee@arenadawn.id',
-    role: 'panitia',
-    phone: '0857-2233-4455',
-    active: true,
-    createdAt: '2026-09-12',
-  },
-  {
-    id: 'usr-visitor-1',
-    name: 'Pengunjung Publik / Kapten Tim',
-    email: 'guest@arenadawn.id',
-    role: 'pengunjung',
-    phone: '0819-0000-1111',
-    active: true,
-    createdAt: '2026-10-01',
-  },
-];
 
 export const INITIAL_PLAYERS: Player[] = [
   // Team 1: ONIC Prodigy (6 players: 5 Core + 1 Sub)

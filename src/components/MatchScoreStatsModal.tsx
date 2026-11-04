@@ -458,7 +458,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
               {match.scheduledTime})
             </p>
           </div>
-          <button
+          <button aria-label="Tutup"
             type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800"

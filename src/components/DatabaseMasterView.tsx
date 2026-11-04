@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { MLBBHeroRole, Player, Team } from '../types/tournament';
 import { MLBB_HEROES } from '../utils/bracketEngine';
-import { Database, Plus, Search, Shield, Trash2, UserPlus, Users } from 'lucide-react';
+import { Database, Plus, Search, Shield, Trash2, UserPlus } from 'lucide-react';
+import { PlayerCard, TeamClanCard } from './DatabaseCards';
 
 interface DatabaseMasterViewProps {
   teams: Team[];
@@ -70,7 +71,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
       name: teamName.trim(),
       tag: teamTag.trim().toUpperCase(),
       captainName: captainName.trim() || 'Kapten Tim',
-      whatsapp: whatsapp.trim() || '0812-0000-0000',
+      whatsapp: whatsapp.trim(),
       city: city.trim() || 'Indonesia',
       memberPlayerIds: selectedRosterIds,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -163,7 +164,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
       {/* 1. TEAMS DATABASE */}
       {activeSubTab === 'teams' && (
         <div className="space-y-6">
-          {/* Add New Team Form */}
+          {canManage && (
           <form
             onSubmit={handleCreateTeam}
             className="p-5 bg-[#111827] border border-slate-800 rounded-xl space-y-4"
@@ -243,75 +244,48 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
               </button>
             </div>
           </form>
+          )}
 
           {/* Teams Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredTeams.map((team) => {
-              const teamPlayers = team.memberPlayerIds
-                .map((pid) => players.find((p) => p.id === pid))
-                .filter(Boolean) as Player[];
-
-              return (
-                <div
+          {filteredTeams.length === 0 ? (
+            <div className="p-10 bg-[#111827] border border-slate-800 rounded-xl text-center text-sm text-slate-400">
+              {teams.length === 0 ? 'Database tim masih kosong.' : 'Tim tidak ditemukan.'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {filteredTeams.map((team) => (
+                <TeamClanCard
                   key={team.id}
-                  className="p-5 bg-[#111827] border border-slate-800 rounded-xl space-y-3"
-                >
-                  <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-800">
-                    <div>
-                      <div className="text-base font-bold text-slate-100">
-                        <span className="text-amber-400 font-mono mr-1.5">
-                          [{team.tag}]
-                        </span>
-                        {team.name}
-                      </div>
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        Kapten: {team.captainName} · WA: {team.whatsapp} · {team.city}
-                      </div>
-                    </div>
-                    {canManage && (
+                  team={team}
+                  players={
+                    team.memberPlayerIds
+                      .map((pid) => players.find((p) => p.id === pid))
+                      .filter(Boolean) as Player[]
+                  }
+                  actions={
+                    canManage && (
                       <button
                         type="button"
                         onClick={() => onDeleteTeam(team.id)}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors"
+                        aria-label={`Hapus tim ${team.name}`}
                         title="Hapus Tim"
+                        className="p-1.5 rounded-lg bg-black/60 text-slate-300 hover:text-rose-400 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium text-slate-400">
-                      Roster Terdaftar ({teamPlayers.length} Pemain — 5 Inti +{' '}
-                      {Math.max(0, teamPlayers.length - 5)} Cadangan):
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {teamPlayers.map((tp, idx) => (
-                        <div
-                          key={tp.id}
-                          className="px-2.5 py-1.5 bg-[#0B0F17] border border-slate-800/80 rounded flex items-center justify-between text-xs"
-                        >
-                          <span className="font-medium text-slate-200 truncate">
-                            {tp.nickname}
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-400 shrink-0 ml-2">
-                            {tp.primaryRole} · {idx < 5 ? 'Inti' : 'Sub'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    )
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* 2. PLAYERS DATABASE */}
       {activeSubTab === 'players' && (
         <div className="space-y-6">
-          {/* Add New Player Form */}
+          {canManage && (
           <form
             onSubmit={handleCreatePlayer}
             className="p-5 bg-[#111827] border border-slate-800 rounded-xl space-y-4"
@@ -420,62 +394,37 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
               </button>
             </div>
           </form>
+          )}
 
-          {/* Players Table */}
-          <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 bg-[#0B0F17] text-xs font-medium text-slate-400">
-                    <th className="py-2.5 px-4">Nickname In-Game</th>
-                    <th className="py-2.5 px-4 font-mono">ID MLBB (Server)</th>
-                    <th className="py-2.5 px-4">Role Utama</th>
-                    <th className="py-2.5 px-4">Tier / Rank</th>
-                    <th className="py-2.5 px-4">Tim Afiliasi</th>
-                    <th className="py-2.5 px-4">Hero Signature</th>
-                    {canManage && <th className="py-2.5 px-4 text-right">Aksi</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70 text-xs">
-                  {filteredPlayers.map((pl) => {
-                    const affTeam = teams.find((t) => t.id === pl.teamId);
-                    return (
-                      <tr key={pl.id} className="hover:bg-slate-800/40">
-                        <td className="py-2.5 px-4 font-semibold text-slate-100">
-                          {pl.nickname}
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-slate-300">
-                          {pl.mlbbId} ({pl.serverId})
-                        </td>
-                        <td className="py-2.5 px-4 text-amber-400 font-medium">
-                          {pl.primaryRole}
-                        </td>
-                        <td className="py-2.5 px-4 text-slate-300">{pl.tierRank}</td>
-                        <td className="py-2.5 px-4 text-slate-300">
-                          {affTeam ? `[${affTeam.tag}] ${affTeam.name}` : 'Free Agent'}
-                        </td>
-                        <td className="py-2.5 px-4 text-slate-400">
-                          {pl.signatureHeroes.join(' · ')}
-                        </td>
-                        {canManage && (
-                          <td className="py-2.5 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onDeletePlayer(pl.id)}
-                              className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
-                              title="Hapus Pemain"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {/* Players Grid */}
+          {filteredPlayers.length === 0 ? (
+            <div className="p-10 bg-[#111827] border border-slate-800 rounded-xl text-center text-sm text-slate-400">
+              {players.length === 0 ? 'Database player masih kosong.' : 'Player tidak ditemukan.'}
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {filteredPlayers.map((pl) => (
+                <PlayerCard
+                  key={pl.id}
+                  player={pl}
+                  team={teams.find((t) => t.id === pl.teamId)}
+                  actions={
+                    canManage && (
+                      <button
+                        type="button"
+                        onClick={() => onDeletePlayer(pl.id)}
+                        aria-label={`Hapus pemain ${pl.nickname}`}
+                        title="Hapus Pemain"
+                        className="p-1.5 rounded-lg bg-black/60 text-slate-300 hover:text-rose-400 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

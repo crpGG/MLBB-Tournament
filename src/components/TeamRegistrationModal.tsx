@@ -8,6 +8,8 @@ import {
   TournamentRegistration,
 } from '../types/tournament';
 import { SAMPLE_PAYMENT_PROOF_URI } from '../data/initialData';
+import { cloudEnabled } from '../cloud';
+import { readImageCompressed } from '../utils/image';
 import {
   Check,
   Copy,
@@ -177,13 +179,9 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
   const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setPaymentProofUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    readImageCompressed(file).then(setPaymentProofUrl, () =>
+      setErrorMessage('File harus berupa gambar (JPG/PNG).')
+    );
   };
 
   const handleReqProofFileChange = (
@@ -192,19 +190,14 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
+    readImageCompressed(file).then(
+      (url) =>
         setRequirementProofs((prev) => ({
           ...prev,
-          [reqId]: {
-            url: reader.result as string,
-            note: prev[reqId]?.note || 'Bukti dokumen terlampir',
-          },
-        }));
-      }
-    };
-    reader.readAsDataURL(file);
+          [reqId]: { url, note: prev[reqId]?.note || 'Bukti dokumen terlampir' },
+        })),
+      () => setErrorMessage('File harus berupa gambar (JPG/PNG).')
+    );
   };
 
   const handleCopyAccount = (id: string, text?: string) => {
@@ -297,13 +290,15 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
       return;
     }
 
+    // Hanya syarat yang benar-benar diunggah; jangan menempel bukti palsu pada syarat opsional.
     const reqSubmissions: RequirementSubmission[] =
-      tournament.conditionalRequirements.map((req) => ({
-        requirementId: req.id,
-        proofImageUrl:
-          requirementProofs[req.id]?.url || SAMPLE_PAYMENT_PROOF_URI,
-        note: requirementProofs[req.id]?.note || 'Memenuhi syarat pendaftaran',
-      }));
+      tournament.conditionalRequirements
+        .filter((req) => requirementProofs[req.id]?.url)
+        .map((req) => ({
+          requirementId: req.id,
+          proofImageUrl: requirementProofs[req.id].url,
+          note: requirementProofs[req.id]?.note || 'Memenuhi syarat pendaftaran',
+        }));
 
     if (tournament.feeType === 'conditional_free') {
       const missingMandatory = tournament.conditionalRequirements.some(
@@ -366,7 +361,7 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
               Pilih Tim & Roster dari Database (Wajib 5 Pemain Inti + Maksimal 2 Cadangan Opsional)
             </p>
           </div>
-          <button
+          <button aria-label="Tutup"
             type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800"
@@ -809,13 +804,13 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
                             className="hidden"
                           />
                         </label>
-                        <button
+                        {!cloudEnabled && (<button
                           type="button"
                           onClick={() => setPaymentProofUrl(SAMPLE_PAYMENT_PROOF_URI)}
                           className="px-3 py-2 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg shrink-0"
                         >
                           Gunakan Contoh Bukti
-                        </button>
+                        </button>)}
                       </div>
                     </div>
                   </div>
@@ -891,7 +886,7 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
                             className="hidden"
                           />
                         </label>
-                        {!uploadedUrl && (
+                        {!cloudEnabled && !uploadedUrl && (
                           <button
                             type="button"
                             onClick={() =>
