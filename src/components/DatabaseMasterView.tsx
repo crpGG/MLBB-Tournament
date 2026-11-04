@@ -265,7 +265,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
                         {team.name}
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
-                        Kapten: {team.captainName} · WA: {team.whatsapp} · {team.city}
+                        Kapten: {team.captainName}{canManage && team.whatsapp ? ` · WA: ${team.whatsapp}` : ''} · {team.city}
                       </div>
                     </div>
                     {canManage && (

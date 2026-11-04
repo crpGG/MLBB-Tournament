@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   BracketFormat,
@@ -7,7 +7,6 @@ import {
   Team,
   Tournament,
   TournamentRegistration,
-  UserAccount,
   UserRole,
 } from './types/tournament';
 import {
@@ -16,13 +15,26 @@ import {
   INITIAL_REGISTRATIONS,
   INITIAL_TEAMS,
   INITIAL_TOURNAMENTS,
-  INITIAL_USERS,
 } from './data/initialData';
 import {
+  StaffProfile,
+  cloudEnabled,
+  logout,
+  onSession,
+  saveContacts,
+  saveRegistration,
+  saveState,
+  subscribeContacts,
+  subscribeRegistrations,
+  subscribeState,
+} from './cloud';
+import {
+  bracketCapacity,
   formatIndonesianDate,
   generateTournamentMatches,
   propagateMatchOutcome,
 } from './utils/bracketEngine';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { MLBBLaylaLoginPage } from './components/MLBBLaylaLoginPage';
 import { MLBBAlucardLoadingScreen } from './components/MLBBAlucardLoadingScreen';
 import { TournamentFormModal } from './components/TournamentFormModal';
@@ -39,8 +51,8 @@ import {
   CreditCard,
   Edit3,
   ExternalLink,
+  KeyRound,
   LogOut,
-  Play,
   Plus,
   Sparkles,
   Swords,
@@ -59,77 +71,68 @@ type MainTab =
 
 type ScreenStage = 'login' | 'loading' | 'lobby';
 
-const STORAGE_KEY = 'arenadawn_mlbb_state_v1';
+// Tanpa Firebase (mode demo) data contoh dipakai di memori; dengan Firebase data berasal dari Firestore.
+const SEED = !cloudEnabled;
+
+/** Kunci objek diurutkan agar perbandingan tidak terpengaruh urutan field dari Firestore. */
+const stable = (v: unknown) =>
+  JSON.stringify(v, (_k, val) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val).sort(([x], [y]) => (x < y ? -1 : 1)))
+      : val
+  );
+
+/** Proyeksi publik: hanya tim yang disetujui, tanpa kontak dan bukti pembayaran. */
+const toPublicRegs = (regs: TournamentRegistration[]): TournamentRegistration[] =>
+  regs
+    .filter((r) => r.status === 'approved')
+    .map((r) => ({
+      id: r.id,
+      tournamentId: r.tournamentId,
+      teamId: r.teamId,
+      teamName: r.teamName,
+      teamTag: r.teamTag,
+      slotIndex: r.slotIndex,
+      captainName: r.captainName,
+      whatsapp: '',
+      corePlayerIds: r.corePlayerIds,
+      subPlayerIds: r.subPlayerIds,
+      feeTypeSnapshot: r.feeTypeSnapshot,
+      requirementSubmissions: [],
+      status: r.status,
+      verifiedBy: r.verifiedBy,
+      verifiedAt: r.verifiedAt,
+      registeredAt: r.registeredAt,
+    }));
+
+type MainTabItem = { id: MainTab; label: string };
+const TABS: MainTabItem[] = [
+  { id: 'bracket', label: 'Lobby & Bracket' },
+  { id: 'registrations', label: 'Registrasi Tim' },
+  { id: 'stats', label: 'Statistik Pemain' },
+  { id: 'database', label: 'Database Tim & Player' },
+  { id: 'users', label: 'Manajemen User' },
+];
 
 export default function App() {
-  // Load or initialize state
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).users || INITIAL_USERS;
-    } catch {}
-    return INITIAL_USERS;
-  });
-
-  const [players, setPlayers] = useState<Player[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).players || INITIAL_PLAYERS;
-    } catch {}
-    return INITIAL_PLAYERS;
-  });
-
-  const [teams, setTeams] = useState<Team[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).teams || INITIAL_TEAMS;
-    } catch {}
-    return INITIAL_TEAMS;
-  });
-
-  const [tournaments, setTournaments] = useState<Tournament[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).tournaments || INITIAL_TOURNAMENTS;
-    } catch {}
-    return INITIAL_TOURNAMENTS;
-  });
-
-  const [registrations, setRegistrations] = useState<TournamentRegistration[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).registrations || INITIAL_REGISTRATIONS;
-    } catch {}
-    return INITIAL_REGISTRATIONS;
-  });
-
-  const [matches, setMatches] = useState<Match[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).matches || INITIAL_MATCHES;
-    } catch {}
-    return INITIAL_MATCHES;
-  });
-
-  // 3-Stage Screen Flow: Layla Login -> Alucard/Layla Loading -> Main Glassy Portal Lobby
-  const [screenStage, setScreenStage] = useState<ScreenStage>('login');
-  const [sessionProfile, setSessionProfile] = useState<{
-    name: string;
-    email: string;
-    region: string;
-  }>({
-    name: 'Geraldy Sacty',
-    email: 'sacty.geraldy@gmail.com',
-    region: 'Sulawesi Utara (ID)',
-  });
-
-  // Active Role & Navigation State
-  const [currentRole, setCurrentRole] = useState<UserRole>('admin');
-  const [activeTab, setActiveTab] = useState<MainTab>('bracket');
-  const [selectedTournamentId, setSelectedTournamentId] = useState<string>(
-    tournaments[0]?.id || 'trn-1'
+  const [players, setPlayers] = useState<Player[]>(SEED ? INITIAL_PLAYERS : []);
+  const [teams, setTeams] = useState<Team[]>(SEED ? INITIAL_TEAMS : []);
+  const [tournaments, setTournaments] = useState<Tournament[]>(SEED ? INITIAL_TOURNAMENTS : []);
+  const [registrations, setRegistrations] = useState<TournamentRegistration[]>(
+    SEED ? INITIAL_REGISTRATIONS : []
   );
-  const [showWorkflowGuide, setShowWorkflowGuide] = useState<boolean>(true);
+  const [matches, setMatches] = useState<Match[]>(SEED ? INITIAL_MATCHES : []);
+
+  // Alur layar: login -> loading -> lobby. Staf = akun Firebase; selain itu pengunjung.
+  const [screenStage, setScreenStage] = useState<ScreenStage>('login');
+  const [staff, setStaff] = useState<StaffProfile | null>(null);
+  const currentRole: UserRole = staff ? staff.role : 'pengunjung';
+  const isAdmin = staff?.role === 'admin';
+  const sessionName = staff?.name || 'Pengunjung';
+  const [activeTab, setActiveTab] = useState<MainTab>('bracket');
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string>('');
+  const [showWorkflowGuide, setShowWorkflowGuide] = useState<boolean>(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
   // Modals State
   const [isTournamentModalOpen, setIsTournamentModalOpen] = useState(false);
@@ -141,27 +144,138 @@ export default function App() {
     useState<Match | null>(null);
   const [toastNotification, setToastNotification] = useState<string | null>(null);
 
-  // Persist to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          users,
-          players,
-          teams,
-          tournaments,
-          registrations,
-          matches,
-        })
-      );
-    } catch {}
-  }, [users, players, teams, tournaments, registrations, matches]);
-
   const showToast = (msg: string) => {
     setToastNotification(msg);
     setTimeout(() => setToastNotification(null), 3500);
   };
+
+  // ---- Sinkron Firebase ----
+  const [stateLoaded, setStateLoaded] = useState(SEED);
+  const [regsLoaded, setRegsLoaded] = useState(false);
+  const lastState = useRef('');
+  const lastContacts = useRef('');
+  const contactsRef = useRef<Record<string, string>>({});
+  const regRemote = useRef(new Map<string, string>());
+  const publicRegs = useRef<TournamentRegistration[]>([]);
+  const wasStaff = useRef(false);
+
+  // Sesi staf (dipulihkan per tab). Kembali ke login bila sesi staf berakhir.
+  useEffect(
+    () =>
+      onSession((profile) => {
+        setStaff(profile);
+        if (profile) {
+          wasStaff.current = true;
+          setScreenStage((st) => (st === 'login' ? 'lobby' : st));
+        } else if (wasStaff.current) {
+          wasStaff.current = false;
+          setScreenStage('login');
+        }
+      }),
+    []
+  );
+
+  // Data publik (semua orang membaca).
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    return subscribeState(
+      (st) => {
+        const core = {
+          tournaments: (st?.tournaments || []) as Tournament[],
+          teams: st?.teams || [],
+          players: (st?.players || []) as Player[],
+          matches: (st?.matches || []) as Match[],
+          registrations: st?.registrations || [],
+        };
+        lastState.current = stable(core);
+        publicRegs.current = core.registrations;
+        setTournaments(core.tournaments);
+        setTeams(core.teams.map((t) => ({ ...t, whatsapp: contactsRef.current[t.id] ?? '' })));
+        setPlayers(core.players);
+        setMatches(core.matches);
+        setStaff((cur) => {
+          if (!cur) setRegistrations(core.registrations); // pengunjung memakai proyeksi publik
+          return cur;
+        });
+        setStateLoaded(true);
+      },
+      () => showToast('Gagal memuat data dari server. Muat ulang halaman.')
+    );
+  }, []);
+
+  // Data khusus staf: pendaftaran lengkap dan nomor WhatsApp kapten.
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    if (!staff) {
+      setRegsLoaded(false);
+      setRegistrations(publicRegs.current);
+      return;
+    }
+    const unsubRegs = subscribeRegistrations((list) => {
+      regRemote.current = new Map(list.map((r) => [r.id, stable(r)]));
+      setRegistrations([...list].sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : -1)));
+      setRegsLoaded(true);
+    });
+    const unsubContacts = subscribeContacts((map) => {
+      contactsRef.current = map;
+      lastContacts.current = stable(map);
+      setTeams((prev) => prev.map((t) => ({ ...t, whatsapp: map[t.id] ?? t.whatsapp })));
+    });
+    return () => {
+      unsubRegs();
+      unsubContacts();
+    };
+  }, [!!staff]);
+
+  // Simpan perubahan staf ke server (debounce). Pengunjung tidak pernah menulis ke data publik.
+  useEffect(() => {
+    if (!cloudEnabled || !staff || !stateLoaded || !regsLoaded) return;
+    const pub = {
+      tournaments,
+      teams: teams.map((t) => ({ ...t, whatsapp: '' })),
+      players,
+      matches,
+      registrations: toPublicRegs(registrations),
+    };
+    const wa = Object.fromEntries(teams.filter((t) => t.whatsapp).map((t) => [t.id, t.whatsapp]));
+    const key = stable(pub);
+    const keyWa = stable(wa);
+    if (key === lastState.current && keyWa === lastContacts.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        if (key !== lastState.current) {
+          lastState.current = key;
+          await saveState(pub);
+        }
+        if (keyWa !== lastContacts.current) {
+          lastContacts.current = keyWa;
+          await saveContacts(wa);
+        }
+      } catch {
+        lastState.current = '';
+        showToast('Gagal menyimpan ke server. Periksa koneksi lalu ulangi perubahan.');
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [tournaments, teams, players, matches, registrations, staff, stateLoaded, regsLoaded]);
+
+  useEffect(() => {
+    if (!cloudEnabled || !staff || !regsLoaded) return;
+    registrations.forEach((r) => {
+      const key = stable(r);
+      if (regRemote.current.get(r.id) === key) return;
+      regRemote.current.set(r.id, key);
+      saveRegistration(r).catch(() => {
+        regRemote.current.delete(r.id);
+        showToast('Gagal menyimpan pendaftaran ke server.');
+      });
+    });
+  }, [registrations, staff, regsLoaded]);
+
+  // Pengunjung hanya melihat tab publik; staf non-admin tidak punya tab Manajemen User.
+  useEffect(() => {
+    if (activeTab === 'users' && !isAdmin) setActiveTab('bracket');
+  }, [activeTab, isAdmin]);
 
   const activeTournament = useMemo(
     () =>
@@ -180,26 +294,29 @@ export default function App() {
     [matches, activeTournament?.id]
   );
 
-  const canManageTournament =
-    currentRole === 'admin' || currentRole === 'panitia';
+  const canManageTournament = Boolean(staff);
 
-  // Login Handler: Transition from Layla Login -> Alucard/Layla Loading -> Lobby
-  const handleLoginSuccess = (session: {
-    name: string;
-    email: string;
-    role: UserRole;
-    region: string;
-  }) => {
-    setSessionProfile({
-      name: session.name,
-      email: session.email,
-      region: session.region,
-    });
-    setCurrentRole(session.role);
-    if (session.role !== 'admin' && activeTab === 'users') {
-      setActiveTab('bracket');
-    }
+  const enterLobby = (profile: StaffProfile | null) => {
+    setStaff(profile);
     setScreenStage('loading');
+  };
+
+  const handleLogout = async () => {
+    wasStaff.current = false;
+    await logout();
+    setStaff(null);
+    setScreenStage('login');
+  };
+
+  // Bracket baru menghapus hasil laga; minta konfirmasi bila sudah ada skor/statistik.
+  const confirmDiscardResults = () => {
+    const started = activeMatches.some(
+      (m) => m.status !== 'scheduled' || m.playerStats.length > 0 || m.scoreA > 0 || m.scoreB > 0
+    );
+    return (
+      !started ||
+      window.confirm('Sudah ada hasil laga. Menyusun ulang bracket akan MENGHAPUS semua skor dan statistik turnamen ini. Lanjutkan?')
+    );
   };
 
   // Handlers for Tournament Create / Edit
@@ -265,7 +382,7 @@ export default function App() {
 
   // Handler for Changing Bracket Format on the fly
   const handleChangeBracketFormat = (newFormat: BracketFormat) => {
-    if (!activeTournament) return;
+    if (!activeTournament || !confirmDiscardResults()) return;
     const updated: Tournament = {
       ...activeTournament,
       bracketFormat: newFormat,
@@ -293,7 +410,7 @@ export default function App() {
   };
 
   const handleRegenerateCurrentBracket = () => {
-    if (!activeTournament) return;
+    if (!activeTournament || !confirmDiscardResults()) return;
     const approved = activeRegistrations.filter((r) => r.status === 'approved');
     const generated = generateTournamentMatches(activeTournament, approved);
     setMatches((prev) => [
@@ -306,11 +423,28 @@ export default function App() {
   };
 
   // Handler for Team Registration
-  const handleRegisterTeam = (
+  const handleRegisterTeam = async (
     newReg: TournamentRegistration,
     newTeam?: Team,
     newPlayers?: Player[]
   ) => {
+    // Pengunjung: kirim ke antrean staf (dokumen baru status pending). Tim/pemain baru ikut dikirim
+    // dan baru masuk database saat panitia menyetujui.
+    if (cloudEnabled && !staff) {
+      try {
+        await saveRegistration({
+          ...newReg,
+          status: 'pending',
+          ...(newTeam ? { newTeam } : {}),
+          ...(newPlayers ? { newPlayers } : {}),
+        });
+        setIsRegistrationModalOpen(false);
+        showToast(`Pendaftaran tim [${newReg.teamTag}] ${newReg.teamName} terkirim. Panitia akan memverifikasi.`);
+      } catch {
+        showToast('Gagal mengirim pendaftaran. Periksa koneksi lalu coba lagi.');
+      }
+      return;
+    }
     if (newPlayers && newPlayers.length > 0) {
       setPlayers((prev) => [...prev, ...newPlayers]);
     }
@@ -327,15 +461,24 @@ export default function App() {
 
   // Handlers for Registration Approval / Rejection
   const handleApproveRegistration = (regId: string) => {
-    const verifierName =
-      currentRole === 'admin'
-        ? `${sessionProfile.name} (Admin)`
-        : `${sessionProfile.name} (Panitia)`;
+    const verifierName = `${sessionName} (${isAdmin ? 'Admin' : 'Panitia'})`;
+    const target = registrations.find((r) => r.id === regId);
+    if (target?.newPlayers?.length) {
+      setPlayers((prev) => [
+        ...prev,
+        ...target.newPlayers!.filter((np) => !prev.some((p) => p.id === np.id)),
+      ]);
+    }
+    if (target?.newTeam) {
+      setTeams((prev) => (prev.some((t) => t.id === target.newTeam!.id) ? prev : [...prev, target.newTeam!]));
+    }
 
     const updatedRegs = registrations.map((r) =>
       r.id === regId
         ? {
             ...r,
+            newTeam: undefined,
+            newPlayers: undefined,
             status: 'approved' as const,
             verifiedBy: verifierName,
             verifiedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -344,7 +487,11 @@ export default function App() {
     );
     setRegistrations(updatedRegs);
 
-    if (activeTournament) {
+    // Jangan menyusun ulang bracket otomatis bila laga sudah berjalan: hasil akan hilang.
+    const started = activeMatches.some(
+      (m) => m.status !== 'scheduled' || m.playerStats.length > 0 || m.scoreA > 0 || m.scoreB > 0
+    );
+    if (activeTournament && !started) {
       const approvedForTourney = updatedRegs.filter(
         (r) => r.tournamentId === activeTournament.id && r.status === 'approved'
       );
@@ -356,8 +503,10 @@ export default function App() {
         ...prev.filter((m) => m.tournamentId !== activeTournament.id),
         ...regenerated,
       ]);
+      showToast('Pendaftaran tim disetujui & otomatis dimasukkan ke jadwal bracket.');
+    } else {
+      showToast('Pendaftaran tim disetujui. Laga sudah berjalan, jadi bracket tidak disusun ulang otomatis.');
     }
-    showToast('Pendaftaran tim disetujui & otomatis dimasukkan ke jadwal bracket.');
   };
 
   const handleRejectRegistration = (regId: string, reason: string) => {
@@ -387,32 +536,37 @@ export default function App() {
     (r) => r.status === 'pending'
   ).length;
 
-  const roleBadgeLabel =
-    currentRole === 'admin'
-      ? 'Admin Utama'
-      : currentRole === 'panitia'
-      ? 'Panitia Turnamen'
-      : 'Pengunjung / Kapten Tim';
+  const roleBadgeLabel = isAdmin
+    ? 'Admin'
+    : staff
+    ? 'Panitia Turnamen'
+    : 'Pengunjung';
 
-  // STAGE 1: LAYLA LOGIN PAGE
+  // Turnamen aktif bisa hilang (dihapus staf lain): pilih ulang otomatis lewat activeTournament.
+  const playersForView = useMemo(() => {
+    const extra = registrations.flatMap((r) => r.newPlayers || []);
+    return extra.length ? [...players, ...extra.filter((e) => !players.some((p) => p.id === e.id))] : players;
+  }, [players, registrations]);
+
+  // STAGE 1: LOGIN
   if (screenStage === 'login') {
     return (
       <MLBBLaylaLoginPage
-        users={users}
-        onLoginSuccess={handleLoginSuccess}
+        onStaffLogin={(profile) => enterLobby(profile)}
+        onVisitor={() => enterLobby(null)}
       />
     );
   }
 
-  // STAGE 2: ALUCARD & LAYLA MLBB LOADING SCREEN
+  // STAGE 2: LOADING
   if (screenStage === 'loading') {
     return (
       <MLBBAlucardLoadingScreen
-        userName={sessionProfile.name}
+        userName={sessionName}
         userRoleLabel={roleBadgeLabel}
         onComplete={() => {
           setScreenStage('lobby');
-          showToast(`Selamat datang di Lobby ArenaDawn, ${sessionProfile.name}!`);
+          showToast(`Selamat datang di Lobby ArenaDawn, ${sessionName}!`);
         }}
       />
     );
@@ -434,101 +588,94 @@ export default function App() {
         <div className="absolute -bottom-40 left-1/3 w-[36rem] h-[28rem] rounded-full bg-cyan-500/10 blur-[130px]" />
       </div>
 
-      {/* STRICT 3-ZONE TOP BAR CONTRACT (Glassy Edition) */}
-      <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-white/10 bg-[#0A1224]/80 sticky top-0 z-40 backdrop-blur-xl">
-        {/* Zone 1: Single text element wordmark */}
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('bracket');
-          }}
-          className="text-lg font-bold tracking-tight text-amber-400 font-display whitespace-nowrap shrink-0"
+      <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-white/10 bg-[#0A1224]/80 sticky top-0 z-40 backdrop-blur-xl">
+        <button
+          type="button"
+          onClick={() => setActiveTab('bracket')}
+          className="text-lg font-bold tracking-tight text-amber-400 font-display whitespace-nowrap shrink-0 cursor-pointer"
         >
           ArenaDawn MLBB
-        </a>
+        </button>
 
-        {/* Zone 2: 5 concise single-line text navigation links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
-          <button
-            type="button"
-            onClick={() => setActiveTab('bracket')}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 cursor-pointer ${
-              activeTab === 'bracket'
-                ? 'text-amber-300 border-b-2 border-amber-400 font-semibold'
-                : ''
-            }`}
-          >
-            Lobby & Bracket
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('registrations')}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 cursor-pointer ${
-              activeTab === 'registrations'
-                ? 'text-amber-300 border-b-2 border-amber-400 font-semibold'
-                : ''
-            }`}
-          >
-            Registrasi Tim ({activeRegistrations.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('stats')}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 cursor-pointer ${
-              activeTab === 'stats'
-                ? 'text-amber-300 border-b-2 border-amber-400 font-semibold'
-                : ''
-            }`}
-          >
-            Statistik Pemain
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('database')}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 cursor-pointer ${
-              activeTab === 'database'
-                ? 'text-amber-300 border-b-2 border-amber-400 font-semibold'
-                : ''
-            }`}
-          >
-            Database Tim & Player
-          </button>
-          {currentRole === 'admin' && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('users')}
-              className={`hover:text-white transition-colors whitespace-nowrap shrink-0 pb-0.5 cursor-pointer ${
-                activeTab === 'users'
-                  ? 'text-amber-300 border-b-2 border-amber-400 font-semibold'
-                  : ''
-              }`}
-            >
-              Manajemen User
-            </button>
-          )}
-        </nav>
-
-        {/* Zone 3: 1 primary action */}
-        <div className="flex items-center shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
+            {staff && <span className="text-xs font-bold text-white truncate max-w-[10rem]">{sessionName}</span>}
+            <span className="text-[11px] text-amber-300">{roleBadgeLabel}</span>
+          </div>
           <button
             type="button"
             onClick={() => setIsRegistrationModalOpen(true)}
-            className="px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-lg transition-all shadow-[0_0_20px_rgba(245,158,11,0.3)] whitespace-nowrap shrink-0 cursor-pointer"
+            disabled={!activeTournament}
+            className="px-3 sm:px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Daftar Turnamen
+            Daftar Tim
+          </button>
+          {staff && (
+            <button
+              type="button"
+              onClick={() => setIsPasswordModalOpen(true)}
+              aria-label="Ganti password"
+              title="Ganti password"
+              className="p-2 rounded-lg glass-card text-slate-200 hover:text-amber-300 cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-400/30 rounded-lg cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{staff ? 'Keluar' : 'Ke Login'}</span>
           </button>
         </div>
       </header>
 
-      {/* Toast Notification Banner */}
+      {/* Satu tab bar untuk desktop dan mobile */}
+      <nav
+        aria-label="Menu utama"
+        className="relative z-30 border-b border-white/10 bg-[#0A1224]/60 backdrop-blur"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-1 overflow-x-auto">
+          {TABS.filter((t) => t.id !== 'users' || isAdmin).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              aria-current={activeTab === t.id ? 'page' : undefined}
+              className={`px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
+                activeTab === t.id
+                  ? 'text-amber-300 border-amber-400 font-semibold'
+                  : 'text-slate-300 border-transparent hover:text-white'
+              }`}
+            >
+              {t.label}
+              {t.id === 'registrations' && activeRegistrations.length > 0 && (
+                <span className="ml-1.5 text-xs text-slate-400">({activeRegistrations.length})</span>
+              )}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowWorkflowGuide((prev) => !prev)}
+            aria-expanded={showWorkflowGuide}
+            className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs text-slate-300 hover:text-amber-300 whitespace-nowrap cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
+            Panduan alur
+          </button>
+        </div>
+      </nav>
+
       <AnimatePresence>
         {toastNotification && (
           <motion.div
+            role="status"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-5 right-5 z-50 px-4 py-3 bg-emerald-500 text-slate-950 font-semibold text-xs rounded-xl shadow-2xl flex items-center gap-2"
+            className="fixed bottom-5 right-5 left-5 sm:left-auto z-50 px-4 py-3 bg-emerald-500 text-slate-950 font-semibold text-xs rounded-xl shadow-2xl flex items-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{toastNotification}</span>
@@ -536,163 +683,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Main Content Container */}
       <main className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6 flex-1">
-        {/* Glassy Session Command Bar: User Profile, Role Switcher, Replay Loading & Return to Login */}
-        <section className="p-4 glass-panel rounded-2xl flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          {/* Left: Logged-in Commander Info & Role Switcher */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2.5 pr-3 border-r border-white/10">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center shadow">
-                {sessionProfile.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>{sessionProfile.name}</span>
-                  <span className="text-[10px] font-mono text-amber-300">
-                    ({sessionProfile.region})
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-300">
-                  Mode Akses: <strong className="text-amber-300">{roleBadgeLabel}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Instant Role Switcher */}
-            <div className="flex flex-wrap items-center gap-1 p-1 bg-[#081020]/90 border border-white/10 rounded-xl">
-              {(
-                [
-                  {
-                    role: 'admin',
-                    label: 'Admin (Semua Fitur + User)',
-                  },
-                  {
-                    role: 'panitia',
-                    label: 'Panitia (Tanpa User)',
-                  },
-                  {
-                    role: 'pengunjung',
-                    label: 'Pengunjung (Lihat & Daftar)',
-                  },
-                ] as { role: UserRole; label: string }[]
-              ).map((item) => (
-                <button
-                  key={item.role}
-                  type="button"
-                  onClick={() => {
-                    setCurrentRole(item.role);
-                    if (item.role !== 'admin' && activeTab === 'users') {
-                      setActiveTab('bracket');
-                    }
-                    showToast(`Beralih ke mode akses: ${item.label}`);
-                  }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                    currentRole === item.role
-                      ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-bold shadow'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Right: Login & Loading Screen Quick Actions + Guide Toggle */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowWorkflowGuide((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium glass-card hover:border-amber-400/50 text-slate-200 rounded-lg transition-colors cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              {showWorkflowGuide ? 'Sembunyikan Panduan Alur' : 'Tampilkan Panduan Alur'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setScreenStage('loading')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium glass-card hover:border-cyan-400/50 text-cyan-200 rounded-lg transition-colors cursor-pointer"
-              title="Putar ulang animasi Loading Screen Mobile Legends"
-            >
-              <Play className="w-3.5 h-3.5 text-cyan-400" />
-              Replay Loading MLBB
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setScreenStage('login')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-400/30 rounded-lg transition-colors cursor-pointer"
-              title="Kembali ke halaman Login Layla"
-            >
-              <LogOut className="w-3.5 h-3.5 text-rose-300" />
-              Halaman Login Layla
-            </button>
-          </div>
-        </section>
-
-        {/* Mobile Navigation Bar */}
-        <div className="flex md:hidden overflow-x-auto gap-1.5 p-1.5 glass-panel rounded-xl">
-          <button
-            type="button"
-            onClick={() => setActiveTab('bracket')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap ${
-              activeTab === 'bracket'
-                ? 'bg-amber-500 text-slate-950 font-bold'
-                : 'text-slate-300'
-            }`}
-          >
-            Lobby & Bracket
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('registrations')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap ${
-              activeTab === 'registrations'
-                ? 'bg-amber-500 text-slate-950 font-bold'
-                : 'text-slate-300'
-            }`}
-          >
-            Registrasi ({activeRegistrations.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('stats')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap ${
-              activeTab === 'stats'
-                ? 'bg-amber-500 text-slate-950 font-bold'
-                : 'text-slate-300'
-            }`}
-          >
-            Statistik Pemain
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('database')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap ${
-              activeTab === 'database'
-                ? 'bg-amber-500 text-slate-950 font-bold'
-                : 'text-slate-300'
-            }`}
-          >
-            Database Tim
-          </button>
-          {currentRole === 'admin' && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('users')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap ${
-                activeTab === 'users'
-                  ? 'bg-amber-500 text-slate-950 font-bold'
-                  : 'text-slate-300'
-              }`}
-            >
-              User
-            </button>
-          )}
-        </div>
-
         {/* Esports Portal 3-Step Visual Workflow Guide (Clear, Intuitive UI/UX like esportssulut.ai.studio) */}
         <AnimatePresence>
           {showWorkflowGuide && (
@@ -713,7 +704,7 @@ export default function App() {
                     Pilih atau Buat Turnamen MLBB
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Atur Match Day (14 Oktober 2026), Multi Slot, Skin Bebas, Custom Draft Pick, serta skema Gratis, Gratis Bersyarat (link sosmed aktif), atau Bayar (Bank/E-Wallet/QRIS).
+                    Atur Match Day, Multi Slot, Skin Bebas, Custom Draft Pick, serta skema Gratis, Gratis Bersyarat (link sosmed aktif), atau Bayar (Bank/E-Wallet/QRIS).
                   </p>
                 </div>
                 {canManageTournament ? (
@@ -890,6 +881,29 @@ export default function App() {
             })}
           </div>
         </section>
+
+        {!activeTournament && (
+          <section className="p-8 glass-panel rounded-2xl text-center space-y-2">
+            <h2 className="text-lg font-bold text-white">Belum ada turnamen</h2>
+            <p className="text-sm text-slate-300">
+              {canManageTournament
+                ? 'Klik "Buat Turnamen Baru" untuk memulai.'
+                : 'Panitia belum mempublikasikan turnamen. Silakan kembali lagi nanti.'}
+            </p>
+          </section>
+        )}
+
+        {activeTournament &&
+          (() => {
+            const approved = activeRegistrations.filter((r) => r.status === 'approved').length;
+            const cap = bracketCapacity(activeTournament.bracketFormat);
+            return approved > cap ? (
+              <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/30 text-xs text-amber-100">
+                Format bracket ini menampung maksimal {cap} tim. {approved - cap} tim terverifikasi tidak masuk
+                bracket. Ganti format (mis. Single Elimination atau Round Robin).
+              </div>
+            ) : null;
+          })()}
 
         {/* Active Tournament Specification Banner (Following Zero-Pill Metadata Discipline & Glassy Surface) */}
         {activeTournament && (
@@ -1068,7 +1082,7 @@ export default function App() {
               <RegistrationVerificationView
                 tournament={activeTournament}
                 registrations={activeRegistrations}
-                players={players}
+                players={playersForView}
                 canVerify={canManageTournament}
                 onApproveRegistration={handleApproveRegistration}
                 onRejectRegistration={handleRejectRegistration}
@@ -1121,33 +1135,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'users' && (
-              <UserManagementView
-                currentUserRole={currentRole}
-                users={users}
-                onAddUser={(u) => {
-                  setUsers((prev) => [...prev, u]);
-                  showToast(`Akun "${u.name}" (${u.role}) berhasil ditambahkan.`);
-                }}
-                onUpdateUserRole={(uid, newRole) => {
-                  setUsers((prev) =>
-                    prev.map((u) => (u.id === uid ? { ...u, role: newRole } : u))
-                  );
-                  showToast('Role pengguna berhasil diperbarui.');
-                }}
-                onToggleUserActive={(uid) => {
-                  setUsers((prev) =>
-                    prev.map((u) =>
-                      u.id === uid ? { ...u, active: !u.active } : u
-                    )
-                  );
-                }}
-                onDeleteUser={(uid) => {
-                  setUsers((prev) => prev.filter((u) => u.id !== uid));
-                  showToast('Akun pengguna berhasil dihapus.');
-                }}
-              />
-            )}
+            {activeTab === 'users' && isAdmin && <UserManagementView currentUsername={staff?.username || ''} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1157,27 +1145,20 @@ export default function App() {
         <div>
           ArenaDawn — Portal Turnamen & Manajemen Statistik Esport Mobile Legends: Bang Bang
         </div>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => setScreenStage('login')}
-            className="text-slate-300 hover:text-amber-300 transition-colors cursor-pointer"
-          >
-            Layar Login Layla
-          </button>
-          <span>·</span>
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.removeItem(STORAGE_KEY);
-              window.location.reload();
-            }}
-            className="text-slate-300 hover:text-amber-300 transition-colors cursor-pointer"
-          >
-            Reset Data Simulasi Default
-          </button>
+        <div className="text-slate-500">
+          {cloudEnabled ? 'Data tersinkron langsung dengan server' : 'Mode demo: data contoh, tidak tersimpan'}
         </div>
       </footer>
+
+      {isPasswordModalOpen && (
+        <ChangePasswordModal
+          onClose={() => setIsPasswordModalOpen(false)}
+          onDone={() => {
+            setIsPasswordModalOpen(false);
+            showToast('Password berhasil diperbarui.');
+          }}
+        />
+      )}
 
       {/* Modals */}
       <TournamentFormModal

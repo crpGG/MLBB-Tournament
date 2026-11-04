@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Peran dibaca dari users/{uid}: menghapus dokumen itu langsung mencabut akses.
+    function role() {
+      return request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : '';
+    }
+    function isStaff() { return role() in ['admin', 'panitia']; }
+    function isAdmin() { return role() == 'admin'; }
+
+    // Data publik turnamen: semua orang membaca, hanya staf menulis.
+    match /app/state {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // Data pribadi (nomor WhatsApp kapten): hanya staf.
+    match /app/private {
+      allow read, write: if isStaff();
+    }
+
+    // Pendaftaran: staf penuh; pengunjung hanya boleh MEMBUAT dokumen baru berstatus pending.
+    match /registrations/{id} {
+      allow read, update, delete: if isStaff();
+      allow create: if isStaff() || (
+        request.resource.data.status == 'pending'
+        && request.resource.data.id == id
+        && request.resource.data.keys().hasOnly([
+          'id', 'tournamentId', 'teamId', 'teamName', 'teamTag', 'slotIndex', 'captainName', 'whatsapp',
+          'corePlayerIds', 'subPlayerIds', 'feeTypeSnapshot', 'selectedPaymentMethodId', 'paymentSenderName',
+          'paymentProofImageUrl', 'paymentUniqueCode', 'requirementSubmissions', 'status', 'registeredAt',
+          'newTeam', 'newPlayers'
+        ])
+        && request.resource.data.teamName is string && request.resource.data.teamName.size() <= 60
+        && request.resource.data.corePlayerIds.size() <= 5
+        && request.resource.data.subPlayerIds.size() <= 2
+        && request.resource.data.requirementSubmissions.size() <= 8
+        && (!('paymentProofImageUrl' in request.resource.data) || request.resource.data.paymentProofImageUrl.size() <= 450000)
+      );
+    }
+
+    // Profil user: admin membaca semua, user membaca miliknya; penulisan hanya lewat Cloud Function.
+    match /users/{uid} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow write: if false;
+    }
+  }
+}

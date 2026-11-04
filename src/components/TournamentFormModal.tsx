@@ -7,6 +7,7 @@ import {
   Tournament,
 } from '../types/tournament';
 import { SAMPLE_QRIS_SVG_DATA_URI } from '../data/initialData';
+import { readImageCompressed } from '../utils/image';
 import { Plus, Trash2, Upload, X, ExternalLink, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
 
 interface TournamentFormModalProps {
@@ -172,13 +173,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   const handleQrisFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setNewPmQrisUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    readImageCompressed(file).then(setNewPmQrisUrl, () => undefined);
   };
 
   const handleAddPaymentMethod = () => {
@@ -267,7 +262,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
               Atur jadwal 14 Oktober 2026, format bracket, aturan MLBB, dan sistem pembayaran / syarat dokumen
             </p>
           </div>
-          <button
+          <button aria-label="Tutup"
             type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"

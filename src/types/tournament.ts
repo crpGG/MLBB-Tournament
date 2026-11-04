@@ -1,15 +1,5 @@
 export type UserRole = 'admin' | 'panitia' | 'pengunjung';
 
-export interface UserAccount {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  phone: string;
-  active: boolean;
-  createdAt: string;
-}
-
 export type MLBBHeroRole = 'EXP Lane' | 'Jungler' | 'Mid Lane' | 'Gold Lane' | 'Roamer';
 
 export interface Player {
@@ -122,6 +112,9 @@ export interface TournamentRegistration {
   verifiedBy?: string;
   verifiedAt?: string;
   registeredAt: string;
+  // Hanya pada pendaftaran dari pengunjung: tim/pemain baru yang masuk database saat disetujui.
+  newTeam?: Team;
+  newPlayers?: Player[];
 }
 
 export interface PlayerMatchStat {
