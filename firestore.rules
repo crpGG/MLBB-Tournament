@@ -41,6 +41,18 @@ service cloud.firestore {
       );
     }
 
+    // Pendaftaran tim/player ke Database: staf penuh; pengunjung hanya membuat dokumen baru.
+    match /submissions/{id} {
+      allow read, update, delete: if isStaff();
+      allow create: if isStaff() || (
+        request.resource.data.id == id
+        && request.resource.data.kind in ['team', 'player']
+        && request.resource.data.keys().hasOnly(['id', 'kind', 'team', 'players', 'whatsapp', 'submittedAt'])
+        && request.resource.data.players is list && request.resource.data.players.size() <= 7
+        && request.resource.data.whatsapp is string && request.resource.data.whatsapp.size() <= 20
+      );
+    }
+
     // Profil user: admin membaca semua, user membaca miliknya; penulisan hanya lewat Cloud Function.
     match /users/{uid} {
       allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);

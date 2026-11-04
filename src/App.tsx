@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   BracketFormat,
+  DbSubmission,
   Match,
   Player,
   Team,
@@ -19,14 +20,17 @@ import {
 import {
   StaffProfile,
   cloudEnabled,
+  deleteSubmission,
   logout,
   onSession,
   saveContacts,
   saveRegistration,
   saveState,
+  saveSubmission,
   subscribeContacts,
   subscribeRegistrations,
   subscribeState,
+  subscribeSubmissions,
 } from './cloud';
 import {
   bracketCapacity,
@@ -45,6 +49,7 @@ import { RegistrationVerificationView } from './components/RegistrationVerificat
 import { PlayerStatsLeaderboardView } from './components/PlayerStatsLeaderboardView';
 import { DatabaseMasterView } from './components/DatabaseMasterView';
 import { UserManagementView } from './components/UserManagementView';
+import { TeamPlayerRegistrationView } from './components/TeamPlayerRegistrationView';
 import {
   Award,
   CheckCircle2,
@@ -66,6 +71,7 @@ type MainTab =
   | 'bracket'
   | 'registrations'
   | 'stats'
+  | 'register'
   | 'database'
   | 'users';
 
@@ -110,6 +116,7 @@ const TABS: MainTabItem[] = [
   { id: 'bracket', label: 'Lobby & Bracket' },
   { id: 'registrations', label: 'Registrasi Tim' },
   { id: 'stats', label: 'Statistik Pemain' },
+  { id: 'register', label: 'Daftar Tim & Player' },
   { id: 'database', label: 'Database Tim & Player' },
   { id: 'users', label: 'Manajemen User' },
 ];
@@ -122,6 +129,7 @@ export default function App() {
     SEED ? INITIAL_REGISTRATIONS : []
   );
   const [matches, setMatches] = useState<Match[]>(SEED ? INITIAL_MATCHES : []);
+  const [submissions, setSubmissions] = useState<DbSubmission[]>([]); // antrean pendaftaran ke Database
 
   // Alur layar: login -> loading -> lobby. Staf = akun Firebase; selain itu pengunjung.
   const [screenStage, setScreenStage] = useState<ScreenStage>('login');
@@ -208,6 +216,7 @@ export default function App() {
     if (!cloudEnabled) return;
     if (!staff) {
       setRegsLoaded(false);
+      setSubmissions([]);
       setRegistrations(publicRegs.current);
       return;
     }
@@ -216,6 +225,7 @@ export default function App() {
       setRegistrations([...list].sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : -1)));
       setRegsLoaded(true);
     });
+    const unsubSubs = subscribeSubmissions(setSubmissions);
     const unsubContacts = subscribeContacts((map) => {
       contactsRef.current = map;
       lastContacts.current = stable(map);
@@ -223,6 +233,7 @@ export default function App() {
     });
     return () => {
       unsubRegs();
+      unsubSubs();
       unsubContacts();
     };
   }, [!!staff]);
@@ -532,6 +543,38 @@ export default function App() {
     );
   };
 
+  // Pendaftaran tim/player ke Database. Dengan Firebase masuk koleksi submissions (pengunjung hanya membuat);
+  // mode demo: antrean lokal.
+  const handleSubmitSubmission = async (sub: DbSubmission) => {
+    if (cloudEnabled) await saveSubmission(sub);
+    else setSubmissions((prev) => [sub, ...prev]);
+  };
+
+  const removeSubmission = async (sub: DbSubmission) => {
+    try {
+      if (cloudEnabled) await deleteSubmission(sub.id);
+      setSubmissions((prev) => prev.filter((x) => x.id !== sub.id));
+    } catch {
+      showToast('Gagal memperbarui antrean. Periksa koneksi.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleApproveSubmission = async (sub: DbSubmission) => {
+    if (sub.players.length) {
+      setPlayers((prev) => [...prev, ...sub.players.filter((np) => !prev.some((p) => p.id === np.id))]);
+    }
+    if (sub.team) {
+      setTeams((prev) => (prev.some((t) => t.id === sub.team!.id) ? prev : [...prev, sub.team!]));
+    }
+    if (await removeSubmission(sub)) showToast('Pendaftaran disetujui dan masuk ke Database.');
+  };
+
+  const handleRejectSubmission = async (sub: DbSubmission) => {
+    if (window.confirm('Tolak dan hapus pendaftaran ini?') && (await removeSubmission(sub))) showToast('Pendaftaran ditolak.');
+  };
+
   const pendingRegistrationsCount = activeRegistrations.filter(
     (r) => r.status === 'pending'
   ).length;
@@ -608,7 +651,7 @@ export default function App() {
             disabled={!activeTournament}
             className="px-3 sm:px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Daftar Tim
+            Daftar ke Turnamen
           </button>
           {staff && (
             <button
@@ -651,6 +694,9 @@ export default function App() {
               }`}
             >
               {t.label}
+              {t.id === 'register' && staff && submissions.length > 0 && (
+                <span className="ml-1.5 px-1.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold">{submissions.length}</span>
+              )}
               {t.id === 'registrations' && activeRegistrations.length > 0 && (
                 <span className="ml-1.5 text-xs text-slate-400">({activeRegistrations.length})</span>
               )}
@@ -684,6 +730,8 @@ export default function App() {
       </AnimatePresence>
 
       <main className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6 flex-1">
+        {(activeTab === 'bracket' || activeTab === 'registrations' || activeTab === 'stats') && (
+          <>
         {/* Esports Portal 3-Step Visual Workflow Guide (Clear, Intuitive UI/UX like esportssulut.ai.studio) */}
         <AnimatePresence>
           {showWorkflowGuide && (
@@ -1057,6 +1105,9 @@ export default function App() {
           </section>
         )}
 
+          </>
+        )}
+
         {/* Active View Content with Smooth Motion Transition */}
         <AnimatePresence mode="wait">
           <motion.div
@@ -1099,6 +1150,18 @@ export default function App() {
                 registrations={registrations}
                 canManage={canManageTournament}
                 onSelectMatch={(m) => setSelectedMatchForModal(m)}
+              />
+            )}
+
+            {activeTab === 'register' && (
+              <TeamPlayerRegistrationView
+                teams={teams}
+                players={players}
+                submissions={submissions}
+                isStaff={Boolean(staff)}
+                onSubmit={handleSubmitSubmission}
+                onApprove={handleApproveSubmission}
+                onReject={handleRejectSubmission}
               />
             )}
 
