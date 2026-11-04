@@ -1,0 +1,6 @@
+{
+  "name": "ArenaDawn — Turnamen Esport Mobile Legends",
+  "description": "Platform manajemen turnamen esport Mobile Legends dengan generator bracket otomatis (Single/Double Elimination & Round-Robin), registrasi tim dari database pemain, verifikasi pembayaran manual/syarat gratis, dan laporan statistik performa individu pemain.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
