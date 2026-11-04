@@ -1,1 +1,7 @@
-{ "projects": { "default": "arenadawn-mlbb" } }
+{
+  "projects": {
+    "default": "arenadawn-mlbb"
+  },
+  "targets": {},
+  "etags": {}
+}

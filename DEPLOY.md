@@ -7,7 +7,7 @@ Hosting + Firestore + Auth + Cloud Functions (region `asia-southeast2`). Pola sa
 2. **Authentication → Sign-in method → Email/Password → Enable.**
 3. **Firestore Database → Create database** (production mode, lokasi `asia-southeast2`).
 4. **Project settings → Your apps → Web app**, salin konfigurasi ke `.env.local` (lihat `.env.example`).
-5. Samakan project ID di `.firebaserc` (default `arenadawn-mlbb`).
+5. Samakan project ID di `.firebaserc` (sudah `arenadawn-mlbb`).
 
 ## Deploy
 ```bash
