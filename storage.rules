@@ -1,14 +1,22 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Gambar publik (logo tim, foto player): semua membaca; hanya staf (peran dibaca dari Firestore users/{uid}) menulis.
+    // Peran dibaca dari Firestore users/{uid}. Memakai izin lintas-layanan: akun layanan Storage
+    // (service-<nomor project>@gcp-sa-firebasestorage) perlu role "Firebase Rules Firestore Service Agent".
+    function isStaff() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'panitia'];
+    }
+
+    // Gambar publik (logo tim, foto player, poster): semua membaca; hanya staf menulis.
     match /img/{file} {
       allow read: if true;
-      allow write: if request.auth != null
-        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'panitia']
+      // Batas ukuran dan tipe hanya berlaku saat menulis; saat menghapus tidak ada request.resource.
+      allow create, update: if isStaff()
         && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
+      allow delete: if isStaff();
     }
   }
 }
