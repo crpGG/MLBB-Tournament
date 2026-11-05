@@ -601,6 +601,7 @@ export default function App() {
       <MLBBAlucardLoadingScreen
         userName={sessionName}
         userRoleLabel={roleBadgeLabel}
+        ready={!cloudEnabled || stateLoaded}
         onComplete={() => {
           setScreenStage('lobby');
           showToast(`Selamat datang di Lobby ArenaDawn, ${sessionName}!`);
@@ -610,6 +611,7 @@ export default function App() {
   }
 
   const capacityWarning = (() => {
+    if (!activeTournament) return null; // belum ada turnamen (mis. database baru): tidak ada yang diperingatkan
     const approved = activeRegistrations.filter((r) => r.status === 'approved').length;
     const cap = bracketCapacity(activeTournament.bracketFormat);
     return approved > cap ? (
