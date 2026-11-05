@@ -23,11 +23,11 @@ import {
   deleteSubmission,
   logout,
   onSession,
-  saveContacts,
+  savePrivate,
   saveRegistration,
   saveState,
   saveSubmission,
-  subscribeContacts,
+  subscribePrivate,
   subscribeRegistrations,
   subscribeState,
   subscribeSubmissions,
@@ -146,7 +146,7 @@ export default function App() {
   const [regsLoaded, setRegsLoaded] = useState(false);
   const lastState = useRef('');
   const lastContacts = useRef('');
-  const contactsRef = useRef<Record<string, string>>({});
+  const privateRef = useRef<{ teamContacts: Record<string, string>; playerNames: Record<string, string> }>({ teamContacts: {}, playerNames: {} });
   const regRemote = useRef(new Map<string, string>());
   const publicRegs = useRef<TournamentRegistration[]>([]);
   const wasStaff = useRef(false);
@@ -182,8 +182,8 @@ export default function App() {
         lastState.current = stable(core);
         publicRegs.current = core.registrations;
         setTournaments(core.tournaments);
-        setTeams(core.teams.map((t) => ({ ...t, whatsapp: contactsRef.current[t.id] ?? '' })));
-        setPlayers(core.players);
+        setTeams(core.teams.map((t) => ({ ...t, whatsapp: privateRef.current.teamContacts[t.id] ?? '' })));
+        setPlayers(core.players.map((p) => ({ ...p, fullName: privateRef.current.playerNames[p.id] })));
         setMatches(core.matches);
         setStaff((cur) => {
           if (!cur) setRegistrations(core.registrations); // pengunjung memakai proyeksi publik
@@ -210,10 +210,11 @@ export default function App() {
       setRegsLoaded(true);
     });
     const unsubSubs = subscribeSubmissions(setSubmissions);
-    const unsubContacts = subscribeContacts((map) => {
-      contactsRef.current = map;
-      lastContacts.current = stable(map);
-      setTeams((prev) => prev.map((t) => ({ ...t, whatsapp: map[t.id] ?? t.whatsapp })));
+    const unsubContacts = subscribePrivate((d) => {
+      privateRef.current = d;
+      lastContacts.current = stable(d);
+      setTeams((prev) => prev.map((t) => ({ ...t, whatsapp: d.teamContacts[t.id] ?? t.whatsapp })));
+      setPlayers((prev) => prev.map((p) => ({ ...p, fullName: d.playerNames[p.id] ?? p.fullName })));
     });
     return () => {
       unsubRegs();
@@ -228,13 +229,16 @@ export default function App() {
     const pub = {
       tournaments,
       teams: teams.map((t) => ({ ...t, whatsapp: '' })),
-      players,
+      players: players.map(({ fullName: _private, ...p }) => p), // nama lengkap tidak boleh masuk data publik
       matches,
       registrations: toPublicRegs(registrations),
     };
-    const wa = Object.fromEntries(teams.filter((t) => t.whatsapp).map((t) => [t.id, t.whatsapp]));
+    const priv = {
+      teamContacts: Object.fromEntries(teams.filter((t) => t.whatsapp).map((t) => [t.id, t.whatsapp])),
+      playerNames: Object.fromEntries(players.filter((p) => p.fullName).map((p) => [p.id, p.fullName as string])),
+    };
     const key = stable(pub);
-    const keyWa = stable(wa);
+    const keyWa = stable(priv);
     if (key === lastState.current && keyWa === lastContacts.current) return;
     const timer = setTimeout(async () => {
       try {
@@ -244,7 +248,7 @@ export default function App() {
         }
         if (keyWa !== lastContacts.current) {
           lastContacts.current = keyWa;
-          await saveContacts(wa);
+          await savePrivate(priv);
         }
       } catch {
         lastState.current = '';

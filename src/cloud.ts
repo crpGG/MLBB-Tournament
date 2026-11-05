@@ -153,12 +153,20 @@ export function subscribeState(onState: (s: PublicState | null) => void, onError
   return onSnapshot(STATE_DOC(), (snap) => onState(snap.exists() ? (snap.data() as PublicState) : null), onError);
 }
 
-/** Nomor WhatsApp kapten per id tim (khusus staf). */
-export function subscribeContacts(cb: (m: Record<string, string>) => void) {
+/** Data pribadi khusus staf: nomor WhatsApp kapten per id tim dan nama lengkap per id player. */
+export interface PrivateData {
+  teamContacts: Record<string, string>;
+  playerNames: Record<string, string>;
+}
+
+export function subscribePrivate(cb: (d: PrivateData) => void) {
   return onSnapshot(
     PRIVATE_DOC(),
-    (snap) => cb((snap.data()?.teamContacts as never) || {}),
-    () => cb({})
+    (snap) => {
+      const d = snap.data() || {};
+      cb({ teamContacts: d.teamContacts || {}, playerNames: d.playerNames || {} });
+    },
+    () => cb({ teamContacts: {}, playerNames: {} })
   );
 }
 
@@ -191,8 +199,7 @@ async function externalize<T>(value: T): Promise<T> {
 }
 
 export const saveState = async (s: PublicState) => setDoc(STATE_DOC(), await externalize(s));
-export const saveContacts = (teamContacts: Record<string, string>) =>
-  setDoc(PRIVATE_DOC(), { teamContacts });
+export const savePrivate = (d: PrivateData) => setDoc(PRIVATE_DOC(), d);
 
 /** Antrean/riwayat pendaftaran lengkap: hanya staf yang bisa membaca. */
 export function subscribeRegistrations(cb: (r: TournamentRegistration[]) => void) {

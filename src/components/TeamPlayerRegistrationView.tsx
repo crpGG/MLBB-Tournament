@@ -11,6 +11,7 @@ const MAX_ROSTER = 7;
 
 interface Row {
   nickname: string;
+  fullName: string; // data pribadi, hanya dilihat staf
   mlbbId: string;
   serverId: string;
   role: MLBBHeroRole;
@@ -18,7 +19,7 @@ interface Row {
   photo: string;
   existingId?: string; // dipilih dari database: tidak membuat player baru
 }
-const emptyRow = (): Row => ({ nickname: '', mlbbId: '', serverId: '', role: 'Jungler', tier: 'Mythical Glory', photo: '' });
+const emptyRow = (): Row => ({ nickname: '', fullName: '', mlbbId: '', serverId: '', role: 'Jungler', tier: 'Mythical Glory', photo: '' });
 
 const field = 'w-full bg-[#0B0F17] border border-slate-700 focus:border-amber-400 rounded-lg px-3 py-2 text-xs text-slate-100 outline-none disabled:opacity-60';
 const lbl = 'block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1';
@@ -128,6 +129,7 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
       return setError(`Isi lengkap ${CORE} pemain inti (nickname, ID, server).`);
     }
     if (filled.some((r) => !r.mlbbId.trim() || !r.serverId.trim() || !r.nickname.trim())) return setError('Data cadangan belum lengkap. Lengkapi atau kosongkan barisnya.');
+    if (filled.some((r) => !r.existingId && r.fullName.trim().length < 3)) return setError('Nama lengkap wajib diisi (minimal 3 huruf) untuk setiap pemain baru.');
     const keys = filled.map((r) => idKey(r.mlbbId, r.serverId));
     if (new Set(keys).size !== keys.length) return setError('Ada ID MLBB ganda di dalam tim ini.');
     const taken = filled.find((r) => !r.existingId && players.some((p) => idKey(p.mlbbId, p.serverId) === idKey(r.mlbbId, r.serverId)));
@@ -140,7 +142,7 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
     filled.forEach((r, i) => {
       if (r.existingId) return void memberPlayerIds.push(r.existingId);
       const id = `pl-${stamp}-${i}`;
-      newPlayers.push({ id, nickname: r.nickname.trim(), mlbbId: r.mlbbId.trim(), serverId: r.serverId.trim(), primaryRole: r.role, tierRank: r.tier, teamId, signatureHeroes: [], ...(r.photo ? { photo: r.photo } : {}) });
+      newPlayers.push({ id, nickname: r.nickname.trim(), fullName: r.fullName.trim().replace(/\s+/g, ' '), mlbbId: r.mlbbId.trim(), serverId: r.serverId.trim(), primaryRole: r.role, tierRank: r.tier, teamId, signatureHeroes: [], ...(r.photo ? { photo: r.photo } : {}) });
       memberPlayerIds.push(id);
     });
     const team: Team = { id: teamId, name: name.trim(), tag: tag.trim().toUpperCase(), captainName: captain.trim(), whatsapp: wa.trim(), city: city.trim() || 'Indonesia', memberPlayerIds, createdAt: new Date().toISOString().slice(0, 10), ...(logo ? { logo } : {}) };
@@ -154,10 +156,11 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
     e.preventDefault();
     setError('');
     if (!solo.nickname.trim() || !solo.mlbbId.trim() || !solo.serverId.trim()) return setError('Nickname, ID MLBB, dan server wajib diisi.');
+    if (solo.fullName.trim().length < 3) return setError('Nama lengkap wajib diisi (minimal 3 huruf).');
     if (wa.replace(/\D/g, '').length < 10) return setError('Nomor WhatsApp tidak valid.');
     if (players.some((p) => idKey(p.mlbbId, p.serverId) === idKey(solo.mlbbId, solo.serverId))) return setError('ID MLBB ini sudah ada di Database Player.');
     const stamp = Date.now();
-    const p: Player = { id: `pl-${stamp}`, nickname: solo.nickname.trim(), mlbbId: solo.mlbbId.trim(), serverId: solo.serverId.trim(), primaryRole: solo.role, tierRank: solo.tier, signatureHeroes: [], ...(solo.photo ? { photo: solo.photo } : {}) };
+    const p: Player = { id: `pl-${stamp}`, nickname: solo.nickname.trim(), fullName: solo.fullName.trim().replace(/\s+/g, ' '), mlbbId: solo.mlbbId.trim(), serverId: solo.serverId.trim(), primaryRole: solo.role, tierRank: solo.tier, signatureHeroes: [], ...(solo.photo ? { photo: solo.photo } : {}) };
     finish({ id: `sub-${stamp}`, kind: 'player', players: [p], whatsapp: wa.trim(), submittedAt: new Date().toISOString() }, `Player ${p.nickname}`).then(() => {
       setSolo(emptyRow());
       setWa('');
@@ -179,6 +182,16 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
               {[...submissions].sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1)).map((s) => (
                 <div key={s.id} className="space-y-2">
                   {s.team ? <TeamClanCard team={s.team} players={playersOf(s)} /> : <div className="w-40"><PlayerCard player={s.players[0]} /></div>}
+                  {playersOf(s).some((pl) => pl.fullName) && (
+                    <details className="rounded-lg border border-slate-800 bg-[#0B0F17]/60 px-3 py-2 text-xs">
+                      <summary className="cursor-pointer text-slate-300">Nama lengkap pemain (khusus panitia)</summary>
+                      <ul className="mt-1.5 space-y-0.5 text-slate-300">
+                        {playersOf(s).map((pl) => (
+                          <li key={pl.id}><span className="text-slate-500">{pl.nickname}:</span> {pl.fullName || '-'}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <a href={waLink(s.whatsapp)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200"><MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />{s.whatsapp}</a>
                     <span className="ml-auto" />
@@ -250,6 +263,12 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
                       <select aria-label="Role" className={field} disabled={!!r.existingId} value={r.role} onChange={(e) => setRow(i, { role: e.target.value as MLBBHeroRole })}>{ROLES.map((x) => <option key={x}>{x}</option>)}</select>
                       <select aria-label="Tier" className={field} disabled={!!r.existingId} value={r.tier} onChange={(e) => setRow(i, { tier: e.target.value as Player['tierRank'] })}>{TIERS.map((x) => <option key={x}>{x}</option>)}</select>
                     </div>
+                    {!r.existingId && (
+                      <label className="block">
+                        <input aria-label="Nama lengkap" placeholder="Nama lengkap (sesuai KTP / kartu pelajar)" autoComplete="off" className={field} maxLength={60} value={r.fullName} onChange={(e) => setRow(i, { fullName: e.target.value })} />
+                        <span className="text-[10px] text-slate-500">Hanya dilihat panitia, tidak ditampilkan ke publik.</span>
+                      </label>
+                    )}
                     {r.existingId && <button type="button" onClick={() => setRow(i, emptyRow())} className="text-[11px] text-slate-400 hover:text-white cursor-pointer">Lepas dari database</button>}
                   </div>
                 </div>
@@ -271,6 +290,7 @@ export const TeamPlayerRegistrationView: React.FC<Props> = ({ teams, players, su
               <PhotoPicker value={solo.photo} name={solo.nickname} autoRemoveBg={autoRemoveBg} onPick={(d) => setSolo((s) => ({ ...s, photo: d }))} />
               <div className="flex-1 grid grid-cols-2 gap-3">
                 <label className="col-span-2"><span className={lbl}>Nickname *</span><input className={field} maxLength={24} value={solo.nickname} onChange={(e) => setSolo({ ...solo, nickname: e.target.value })} /></label>
+                <label className="col-span-2"><span className={lbl}>Nama Lengkap *</span><input className={field} maxLength={60} autoComplete="off" value={solo.fullName} onChange={(e) => setSolo({ ...solo, fullName: e.target.value })} placeholder="Sesuai KTP / kartu pelajar" /><span className="text-[10px] text-slate-500">Hanya dilihat panitia, tidak ditampilkan ke publik.</span></label>
                 <label><span className={lbl}>ID MLBB *</span><input className={`${field} font-mono`} inputMode="numeric" maxLength={12} value={solo.mlbbId} onChange={(e) => setSolo({ ...solo, mlbbId: e.target.value })} /></label>
                 <label><span className={lbl}>Server *</span><input className={`${field} font-mono`} inputMode="numeric" maxLength={6} value={solo.serverId} onChange={(e) => setSolo({ ...solo, serverId: e.target.value })} /></label>
                 <label><span className={lbl}>Role</span><select className={field} value={solo.role} onChange={(e) => setSolo({ ...solo, role: e.target.value as MLBBHeroRole })}>{ROLES.map((x) => <option key={x}>{x}</option>)}</select></label>

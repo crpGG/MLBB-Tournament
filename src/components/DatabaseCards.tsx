@@ -78,7 +78,7 @@ export function TeamClanCard({
 }
 
 /** Kartu player berfoto: badge role di kanan atas, tag tim di kiri atas. */
-export function PlayerCard({ player, team, actions }: { player: Player; team?: Team; actions?: React.ReactNode }) {
+export function PlayerCard({ player, team, actions, fullName }: { player: Player; team?: Team; actions?: React.ReactNode; fullName?: string }) {
   return (
     <div className="rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-b from-[#16213A]/90 to-[#0B1325]/95 shadow-lg hover:border-amber-400/50 transition-colors flex flex-col">
       <div className="aspect-[4/4.4] bg-slate-900 overflow-hidden relative">
@@ -89,6 +89,7 @@ export function PlayerCard({ player, team, actions }: { player: Player; team?: T
       </div>
       <div className="p-2.5 space-y-1 bg-black/20">
         <p className="font-bold text-xs text-white truncate" title={player.nickname}>{player.nickname}</p>
+        {fullName && <p className="text-[10px] text-emerald-300 truncate" title={fullName}>{fullName}</p>}
         <p className="text-[10px] text-slate-300 truncate">{team ? team.name : <span className="italic text-slate-500">Tanpa tim</span>}</p>
         <p className="text-[9px] font-mono text-slate-400 truncate">ID: {player.mlbbId} ({player.serverId})</p>
         <p className="text-[9px] text-amber-300/80 truncate">{player.tierRank}</p>
