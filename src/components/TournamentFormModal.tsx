@@ -6,8 +6,9 @@ import {
   PaymentMethodConfig,
   Tournament,
 } from '../types/tournament';
-import { SAMPLE_QRIS_SVG_DATA_URI } from '../data/initialData';
 import { readImageCompressed } from '../utils/image';
+import { shiftDate, todayLocal } from '../utils/tournamentStatus';
+import { formatIndonesianDate } from '../utils/bracketEngine';
 import { Plus, Trash2, Upload, X, ExternalLink, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
 
 interface TournamentFormModalProps {
@@ -24,10 +25,10 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   editingTournament,
 }) => {
   const [name, setName] = useState(
-    editingTournament?.name || 'Turnamen Esport Mobile Legends — Oktober Series'
+    editingTournament?.name || ''
   );
   const [organizer, setOrganizer] = useState(
-    editingTournament?.organizer || 'Panitia Resmi ArenaDawn'
+    editingTournament?.organizer || ''
   );
   const [posterUrl, setPosterUrl] = useState(editingTournament?.posterUrl || '');
   const [contactWhatsapp, setContactWhatsapp] = useState(editingTournament?.contactWhatsapp || '');
@@ -39,15 +40,15 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
     editingTournament?.status || 'registration'
   );
 
-  // Dates - Default 14 Oktober 2026 as requested
+  // Tanggal bawaan relatif terhadap hari ini: match day 14 hari lagi, penutupan dan TM sehari sebelumnya.
   const [matchDayDate, setMatchDayDate] = useState(
-    editingTournament?.matchDayDate || '2026-10-14'
+    editingTournament?.matchDayDate || shiftDate(todayLocal(), 14)
   );
   const [registrationCloseDate, setRegistrationCloseDate] = useState(
-    editingTournament?.registrationCloseDate || '2026-10-14'
+    editingTournament?.registrationCloseDate || shiftDate(todayLocal(), 13)
   );
   const [technicalMeetingDate, setTechnicalMeetingDate] = useState(
-    editingTournament?.technicalMeetingDate || '2026-10-14'
+    editingTournament?.technicalMeetingDate || shiftDate(todayLocal(), 13)
   );
   const [technicalMeetingTime, setTechnicalMeetingTime] = useState(
     editingTournament?.technicalMeetingTime || '13:00 WIB'
@@ -89,41 +90,16 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   >(editingTournament?.gameMode || 'Custom Draft Pick Mode');
   const [maxTeams, setMaxTeams] = useState<number>(editingTournament?.maxTeams || 16);
   const [prizePool, setPrizePool] = useState(
-    editingTournament?.prizePool || 'Rp 5.000.000 + E-Sertifikat'
+    editingTournament?.prizePool || ''
   );
 
   // Fee & Payment / Conditional Requirements
-  const [feeType, setFeeType] = useState<FeeType>(editingTournament?.feeType || 'paid');
-  const [feeAmount, setFeeAmount] = useState<number>(editingTournament?.feeAmount ?? 75000);
+  const [feeType, setFeeType] = useState<FeeType>(editingTournament?.feeType || 'free');
+  const [feeAmount, setFeeAmount] = useState<number>(editingTournament?.feeAmount ?? 0);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(
     editingTournament?.paymentMethods && editingTournament.paymentMethods.length > 0
       ? editingTournament.paymentMethods
-      : [
-          {
-            id: 'pm-default-bca',
-            type: 'bank',
-            providerName: 'Bank BCA',
-            accountNumber: '8720194821',
-            accountHolder: 'Panitia ArenaDawn Esport',
-            instructions: 'Cantumkan berita transfer: REG-[NAMA TIM]',
-          },
-          {
-            id: 'pm-default-dana',
-            type: 'ewallet',
-            providerName: 'DANA / GoPay',
-            accountNumber: '081288990011',
-            accountHolder: 'Bendahara ArenaDawn',
-            instructions: 'Kirim bukti screenshot transfer berhasil',
-          },
-          {
-            id: 'pm-default-qris',
-            type: 'qris',
-            providerName: 'QRIS Statis Panitia',
-            accountHolder: 'ARENADAWN ESPORT',
-            qrisImageUrl: SAMPLE_QRIS_SVG_DATA_URI,
-            instructions: 'Scan QRIS dan unggah screenshot bukti bayar',
-          },
-        ]
+      : []
   );
 
   const [conditionalRequirements, setConditionalRequirements] = useState<
@@ -132,24 +108,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
     editingTournament?.conditionalRequirements &&
       editingTournament.conditionalRequirements.length > 0
       ? editingTournament.conditionalRequirements
-      : [
-          {
-            id: 'req-default-1',
-            label: 'Follow Instagram Resmi Panitia & Like Postingan Turnamen',
-            category: 'social_follow',
-            externalUrl: 'https://www.instagram.com/',
-            mandatory: true,
-            description: 'Klik link Instagram di atas, follow, dan unggah screenshot bukti.',
-          },
-          {
-            id: 'req-default-2',
-            label: 'Share Poster Turnamen ke Grup Komunitas / Story WA',
-            category: 'social_share',
-            externalUrl: 'https://chat.whatsapp.com/',
-            mandatory: true,
-            description: 'Bagikan ke minimal 1 grup MLBB dan unggah screenshot.',
-          },
-        ]
+      : []
   );
 
   // New Payment Method inputs
@@ -158,7 +117,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   const [newPmNumber, setNewPmNumber] = useState('');
   const [newPmHolder, setNewPmHolder] = useState('');
   const [newPmInstructions, setNewPmInstructions] = useState('');
-  const [newPmQrisUrl, setNewPmQrisUrl] = useState(SAMPLE_QRIS_SVG_DATA_URI);
+  const [newPmQrisUrl, setNewPmQrisUrl] = useState('');
 
   // New Conditional Requirement inputs
   const [newReqLabel, setNewReqLabel] = useState('');
@@ -179,7 +138,10 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   };
 
   const handleAddPaymentMethod = () => {
-    if (!newPmProvider.trim() || !newPmHolder.trim()) return;
+    if (!newPmProvider.trim() || !newPmHolder.trim()) return setFormError('Isi nama penyedia dan nama pemilik rekening.');
+    if (newPmType !== 'qris' && !newPmNumber.trim()) return setFormError('Isi nomor rekening/e-wallet.');
+    if (newPmType === 'qris' && !newPmQrisUrl) return setFormError('Unggah gambar QRIS terlebih dahulu.');
+    setFormError('');
     const added: PaymentMethodConfig = {
       id: `pm-${Date.now()}`,
       type: newPmType,
@@ -216,8 +178,20 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
     setNewReqDesc('');
   };
 
+  const [formError, setFormError] = useState('');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (registrationCloseDate > matchDayDate) {
+      return setFormError('Tanggal penutupan pendaftaran harus sebelum atau sama dengan Match Day.');
+    }
+    if (feeType === 'paid' && (Number(feeAmount) <= 0 || paymentMethods.length === 0)) {
+      return setFormError('Turnamen berbayar wajib punya nominal biaya dan minimal satu metode pembayaran (rekening/e-wallet/QRIS) milik panitia.');
+    }
+    if (feeType === 'conditional_free' && conditionalRequirements.length === 0) {
+      return setFormError('Gratis bersyarat wajib punya minimal satu syarat.');
+    }
+    setFormError('');
     const saved: Tournament = {
       id: editingTournament?.id || `trn-${Date.now()}`,
       name: name.trim(),
@@ -263,7 +237,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
               {editingTournament ? 'Edit Konfigurasi Turnamen' : 'Buat Turnamen Mobile Legends Baru'}
             </h2>
             <p className="text-xs text-slate-400">
-              Atur jadwal 14 Oktober 2026, format bracket, aturan MLBB, dan sistem pembayaran / syarat dokumen
+              Atur jadwal, format bracket, aturan MLBB, dan sistem pembayaran / syarat dokumen
             </p>
           </div>
           <button aria-label="Tutup"
@@ -394,6 +368,8 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 <input
                   type="text"
                   value={prizePool}
+                  required
+                  placeholder="Contoh: Rp 5.000.000 + Trofi"
                   onChange={(e) => setPrizePool(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                 />
@@ -405,18 +381,17 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
           <section className="space-y-4 pt-4 border-t border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-amber-400">
-                02. Jadwal Penting Turnamen (Pilihan Cepat 14 Oktober 2026)
+                02. Jadwal Penting Turnamen
               </h3>
               <button
                 type="button"
                 onClick={() => {
-                  setMatchDayDate('2026-10-14');
-                  setRegistrationCloseDate('2026-10-14');
-                  setTechnicalMeetingDate('2026-10-14');
+                  setRegistrationCloseDate(matchDayDate);
+                  setTechnicalMeetingDate(matchDayDate);
                 }}
                 className="px-3 py-1 text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-md hover:bg-amber-500/25 transition-colors"
               >
-                Set Semua ke 14 Oktober 2026
+                Samakan dengan Match Day
               </button>
             </div>
 
@@ -434,9 +409,9 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 />
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {[
-                    { label: '14 Okt 2026', val: '2026-10-14' },
-                    { label: '17 Okt 2026', val: '2026-10-17' },
-                    { label: '24 Okt 2026', val: '2026-10-24' },
+                    { label: formatIndonesianDate(shiftDate(todayLocal(), 7)), val: shiftDate(todayLocal(), 7) },
+                    { label: formatIndonesianDate(shiftDate(todayLocal(), 14)), val: shiftDate(todayLocal(), 14) },
+                    { label: formatIndonesianDate(shiftDate(todayLocal(), 21)), val: shiftDate(todayLocal(), 21) },
                   ].map((preset) => (
                     <button
                       key={preset.val}
@@ -467,9 +442,9 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 />
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {[
-                    { label: '14 Okt 2026', val: '2026-10-14' },
-                    { label: '13 Okt 2026', val: '2026-10-13' },
-                    { label: '16 Okt 2026', val: '2026-10-16' },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, -1)), val: shiftDate(matchDayDate, -1) },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, -3)), val: shiftDate(matchDayDate, -3) },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, -7)), val: shiftDate(matchDayDate, -7) },
                   ].map((preset) => (
                     <button
                       key={preset.val}
@@ -509,8 +484,9 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 </div>
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {[
-                    { label: '14 Okt 2026', val: '2026-10-14' },
-                    { label: '13 Okt 2026', val: '2026-10-13' },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, -1)), val: shiftDate(matchDayDate, -1) },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, -2)), val: shiftDate(matchDayDate, -2) },
+                    { label: formatIndonesianDate(shiftDate(matchDayDate, 0)), val: shiftDate(matchDayDate, 0) },
                   ].map((preset) => (
                     <button
                       key={preset.val}
@@ -1078,6 +1054,11 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
             >
               Batal
             </button>
+            {formError && (
+              <div role="alert" className="flex-1 mr-3 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-400/30 text-xs text-rose-200">
+                {formError}
+              </div>
+            )}
             <button
               type="submit"
               className="px-5 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"

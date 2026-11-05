@@ -4,6 +4,7 @@ import { Match, Player, Tournament, TournamentRegistration } from '../types/tour
 import { aggregatePlayerLeaderboard, calculateStandings } from '../utils/bracketEngine';
 import { defaultAvatar } from './DatabaseCards';
 import { MainTab } from './AppSidebar';
+import { REG_LABEL, registrationState } from '../utils/tournamentStatus';
 
 interface Props {
   tournaments: Tournament[];
@@ -67,9 +68,9 @@ export const DashboardView: React.FC<Props> = ({
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const completed = t.status === 'completed';
-  const closed = completed || (t.registrationCloseDate !== '' && today > t.registrationCloseDate);
+  const regState = registrationState(t);
+  const completed = regState === 'done';
+  const closed = regState !== 'open';
   const canRegister = isStaff || !closed;
   const slotPct = Math.min(100, Math.round((approved.length / Math.max(1, t.maxTeams)) * 100));
   const done = matches.filter((m) => m.status === 'completed').length;
@@ -129,7 +130,7 @@ export const DashboardView: React.FC<Props> = ({
             <span className={`px-3 py-1 rounded-md border text-[11px] font-bold tracking-wider ${
               completed ? 'border-slate-500 bg-slate-500/15 text-slate-200' : closed ? 'border-red-400 bg-red-500/10 text-red-300' : 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
             }`}>
-              {completed ? 'TURNAMEN SELESAI' : closed ? 'PENDAFTARAN DITUTUP' : 'PENDAFTARAN DIBUKA'}
+              {REG_LABEL[regState]}
             </span>
             <span className="px-3 py-1 rounded-md bg-[#1B2744] text-[11px] font-bold tracking-wider text-slate-200">{t.venueType.toUpperCase()}</span>
           </div>

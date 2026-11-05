@@ -17,33 +17,14 @@ import {
 import { StaffProfile, authErrorMessage, cloudEnabled, loginWithUsername } from '../cloud';
 import { Tournament } from '../types/tournament';
 import { formatIndonesianDate } from '../utils/bracketEngine';
+import { REG_LABEL, registrationState } from '../utils/tournamentStatus';
 
 interface MLBBLaylaLoginPageProps {
   onStaffLogin: (profile: StaffProfile) => void;
   onVisitor: () => void;
   tournaments?: Tournament[];
+  loading?: boolean; // data turnamen belum sampai dari server
 }
-
-const FALLBACK_TICKER_ITEMS = [
-  {
-    id: 'fallback-1',
-    badge: 'PENDAFTARAN DIBUKA',
-    title: 'ArenaDawn Championship Season 1 — 14 Oktober 2026',
-    meta: 'Total Hadiah Rp 15.000.000 · Sistem Liga & Double Elimination · Multi Slot On',
-  },
-  {
-    id: 'fallback-2',
-    badge: 'LIVE BRACKET & STATS',
-    title: 'Pantau Klasemen, Jadwal Real-Time & Leaderboard MVP KDA',
-    meta: 'Single/Double Elimination · Round-Robin · Statistik Hero, Gold & Rating',
-  },
-  {
-    id: 'fallback-3',
-    badge: 'REGISTRASI TIM MUDAH',
-    title: 'Daftarkan Skuad Terbaikmu (5 Pemain Inti + 2 Cadangan)',
-    meta: 'Pilih Pemain dari Database Master · Verifikasi Cepat oleh Panitia',
-  },
-];
 
 interface SparkPoint {
   x: number;
@@ -80,6 +61,7 @@ export const MLBBLaylaLoginPage: React.FC<MLBBLaylaLoginPageProps> = ({
   onStaffLogin,
   onVisitor,
   tournaments = [],
+  loading = false,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -93,16 +75,23 @@ export const MLBBLaylaLoginPage: React.FC<MLBBLaylaLoginPageProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastMouseRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Build dynamic ticker items from active tournaments or fallback
+  // Pengumuman hanya dari data turnamen sungguhan; tanpa data tampil keterangan netral (tidak ada promosi tertanam).
   const tickerItems =
     tournaments.length > 0
-      ? tournaments.map((t) => ({
+      ? tournaments.slice(0, 5).map((t) => ({
           id: t.id,
-          badge: 'PENDAFTARAN DIBUKA',
+          badge: REG_LABEL[registrationState(t)],
           title: `${t.name} — Match Day ${formatIndonesianDate(t.matchDayDate)}`,
-          meta: `Hadiah ${t.prizePool} · ${t.seriesSystem} · ${t.venueType}`,
+          meta: `Hadiah ${t.prizePool || '-'} · ${t.seriesSystem} · ${t.venueType}`,
         }))
-      : FALLBACK_TICKER_ITEMS;
+      : [
+          {
+            id: 'none',
+            badge: loading ? 'MEMUAT DATA' : 'BELUM ADA TURNAMEN',
+            title: loading ? 'Memuat data turnamen...' : 'Belum ada turnamen yang dipublikasikan',
+            meta: 'Panitia akan mengumumkan jadwal dan pendaftaran di portal ini.',
+          },
+        ];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -117,6 +106,7 @@ export const MLBBLaylaLoginPage: React.FC<MLBBLaylaLoginPageProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; // tanpa animasi partikel
 
     let animationFrameId: number;
     const sparks: SparkPoint[] = [];
@@ -395,7 +385,7 @@ export const MLBBLaylaLoginPage: React.FC<MLBBLaylaLoginPageProps> = ({
         <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full glass-card border border-amber-400/30 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           <span className="text-[11px] font-mono font-bold tracking-wider text-amber-300">
-            ARENADAWN MLBB · OFFICIAL ESPORTS PORTAL
+            ARENADAWN MLBB · PORTAL TURNAMEN
           </span>
         </div>
       </div>
@@ -473,7 +463,7 @@ export const MLBBLaylaLoginPage: React.FC<MLBBLaylaLoginPageProps> = ({
                         MYTHIC GLORY ARENA
                       </div>
                       <div className="text-xs font-bold text-white leading-tight mt-0.5">
-                        Official MLBB Tournament Hub
+                        Portal Turnamen Komunitas
                       </div>
                     </div>
                   </div>

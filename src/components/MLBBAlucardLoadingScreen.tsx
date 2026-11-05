@@ -152,7 +152,7 @@ export const MLBBAlucardLoadingScreen: React.FC<MLBBAlucardLoadingScreenProps> =
       <div className="relative z-20 flex items-center justify-between px-6 pt-4">
         <div className="flex items-center gap-3">
           <span className="px-3 py-1 rounded glass-card text-[11px] font-mono text-slate-200 border border-white/15">
-            Current Version: 1.1.86.163.1 · ArenaDawn Esports Engine
+            ArenaDawn MLBB · Portal Turnamen
           </span>
         </div>
 
