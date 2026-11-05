@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana pembaruan UI/UX ArenaDawn mencakup Login Page sinematik dengan referensi gambar Layla (/assets/aistudio/login_page_0c3603ff.png), Loading Screen epik ala Mobile Legends dengan gambar Alucard & Layla (/assets/aistudio/loading_3d66433e.jpg), serta perombakan menyeluruh struktur Portal & Lobby Turnamen Esport bertema Glassy (Glassmorphism) elegan dengan transisi halus.",
-  "updatedAt": "2026-11-04T14:58:44.070717284Z",
+  "summary": "Rencana peningkatan Login Page Mobile Legends (Layla) menjadi portal interaktif 2.5D/3D dengan efek 3D Tilt Hologram mengikuti mouse, animasi karakter Layla bernapas & gelombang energi, partikel kristal & jejak kilat kursor, bingkai energi emas berputar, lencana Mythic Glory berkilau, ticker pengumuman turnamen aktif, serta susunan Portal Heroik Pengunjung di atas dan Login Panitia di bawah.",
+  "updatedAt": "2026-11-05T04:02:34.331274391Z",
   "requestFeedback": true,
   "userFacing": true
 }

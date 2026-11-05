@@ -597,6 +597,7 @@ export default function App() {
       <MLBBLaylaLoginPage
         onStaffLogin={(profile) => enterLobby(profile)}
         onVisitor={() => enterLobby(null)}
+        tournaments={tournaments}
       />
     );
   }
