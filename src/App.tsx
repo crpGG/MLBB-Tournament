@@ -50,8 +50,9 @@ import { PlayerStatsLeaderboardView } from './components/PlayerStatsLeaderboardV
 import { DatabaseMasterView } from './components/DatabaseMasterView';
 import { UserManagementView } from './components/UserManagementView';
 import { TeamPlayerRegistrationView } from './components/TeamPlayerRegistrationView';
+import { AppSidebar, MainTab, NavItem } from './components/AppSidebar';
+import { DashboardView } from './components/DashboardView';
 import {
-  Award,
   CheckCircle2,
   CreditCard,
   Edit3,
@@ -59,21 +60,10 @@ import {
   KeyRound,
   LogOut,
   Plus,
-  Sparkles,
   Swords,
-  Trophy,
   UserCheck,
   UserPlus,
-  Users,
 } from 'lucide-react';
-
-type MainTab =
-  | 'bracket'
-  | 'registrations'
-  | 'stats'
-  | 'register'
-  | 'database'
-  | 'users';
 
 type ScreenStage = 'login' | 'loading' | 'lobby';
 
@@ -111,15 +101,10 @@ const toPublicRegs = (regs: TournamentRegistration[]): TournamentRegistration[] 
       registeredAt: r.registeredAt,
     }));
 
-type MainTabItem = { id: MainTab; label: string };
-const TABS: MainTabItem[] = [
-  { id: 'bracket', label: 'Lobby & Bracket' },
-  { id: 'registrations', label: 'Registrasi Tim' },
-  { id: 'stats', label: 'Statistik Pemain' },
-  { id: 'register', label: 'Daftar Tim & Player' },
-  { id: 'database', label: 'Database Tim & Player' },
-  { id: 'users', label: 'Manajemen User' },
-];
+const waLink = (n?: string) => {
+  const d = (n || '').replace(/\D/g, '');
+  return d.length >= 10 ? `https://wa.me/${d.replace(/^0/, '62')}` : '';
+};
 
 export default function App() {
   const [players, setPlayers] = useState<Player[]>(SEED ? INITIAL_PLAYERS : []);
@@ -137,9 +122,8 @@ export default function App() {
   const currentRole: UserRole = staff ? staff.role : 'pengunjung';
   const isAdmin = staff?.role === 'admin';
   const sessionName = staff?.name || 'Pengunjung';
-  const [activeTab, setActiveTab] = useState<MainTab>('bracket');
+  const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>('');
-  const [showWorkflowGuide, setShowWorkflowGuide] = useState<boolean>(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
   // Modals State
@@ -616,9 +600,44 @@ export default function App() {
     );
   }
 
-  // STAGE 3: MAIN GLASSY ESPORTS PORTAL & MLBB LOBBY
+  const capacityWarning = (() => {
+    const approved = activeRegistrations.filter((r) => r.status === 'approved').length;
+    const cap = bracketCapacity(activeTournament.bracketFormat);
+    return approved > cap ? (
+      <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/30 text-xs text-amber-100">
+        Format bracket ini menampung maksimal {cap} tim. {approved - cap} tim terverifikasi tidak masuk
+        bracket. Ganti format (mis. Single Elimination atau Round Robin).
+      </div>
+    ) : null;
+  })();
+
+  const navItems: NavItem[] = [
+    { id: 'dashboard', label: 'Dashboard Utama' },
+    { id: 'bracket', label: 'Live Bracket & Klasemen' },
+    { id: 'tournaments', label: 'Daftar Turnamen' },
+    { id: 'registrations', label: staff ? 'Verifikasi Pendaftaran' : 'Peserta Turnamen', badge: staff ? pendingRegistrationsCount : undefined },
+    { id: 'stats', label: 'Statistik Pemain' },
+    { id: 'register', label: 'Daftar Tim & Player', badge: staff ? submissions.length : undefined },
+    { id: 'database', label: 'Database Tim & Player' },
+    ...(isAdmin ? [{ id: 'users' as MainTab, label: 'Manajemen User' }] : []),
+  ];
+  const pageTitle = (navItems.find((i) => i.id === activeTab)?.label || '').toUpperCase();
+  const contactUrl = waLink(activeTournament?.contactWhatsapp);
+
+  const handleShare = async () => {
+    const url = window.location.href.split('#')[0];
+    try {
+      if (navigator.share) return void (await navigator.share({ title: activeTournament?.name || 'ArenaDawn MLBB', url }));
+      await navigator.clipboard.writeText(url);
+      showToast('Tautan disalin.');
+    } catch {
+      /* dibatalkan pengguna */
+    }
+  };
+
+  // STAGE 3: DASHBOARD ALA PUBGM-CRP (sidebar + konten)
   return (
-    <div className="relative min-h-screen bg-[#070D19] text-slate-100 flex flex-col overflow-x-hidden">
+    <div className="relative min-h-screen bg-[#070D19] text-slate-100 lg:flex overflow-x-hidden">
       {/* Ambient Glassy Celestial Background Glows */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <img
@@ -632,89 +651,16 @@ export default function App() {
         <div className="absolute -bottom-40 left-1/3 w-[36rem] h-[28rem] rounded-full bg-cyan-500/10 blur-[130px]" />
       </div>
 
-      <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-white/10 bg-[#0A1224]/80 sticky top-0 z-40 backdrop-blur-xl">
-        <button
-          type="button"
-          onClick={() => setActiveTab('bracket')}
-          className="text-lg font-bold tracking-tight text-amber-400 font-display whitespace-nowrap shrink-0 cursor-pointer"
-        >
-          ArenaDawn MLBB
-        </button>
+      <AppSidebar
+        items={navItems}
+        active={activeTab}
+        onSelect={setActiveTab}
+        isStaff={Boolean(staff)}
+        contactUrl={contactUrl}
+        bestOf={activeTournament?.defaultBestOf ?? 1}
+      />
 
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-            {staff && <span className="text-xs font-bold text-white truncate max-w-[10rem]">{sessionName}</span>}
-            <span className="text-[11px] text-amber-300">{roleBadgeLabel}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsRegistrationModalOpen(true)}
-            disabled={!activeTournament}
-            className="px-3 sm:px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Daftar ke Turnamen
-          </button>
-          {staff && (
-            <button
-              type="button"
-              onClick={() => setIsPasswordModalOpen(true)}
-              aria-label="Ganti password"
-              title="Ganti password"
-              className="p-2 rounded-lg glass-card text-slate-200 hover:text-amber-300 cursor-pointer"
-            >
-              <KeyRound className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-400/30 rounded-lg cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{staff ? 'Keluar' : 'Ke Login'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Satu tab bar untuk desktop dan mobile */}
-      <nav
-        aria-label="Menu utama"
-        className="relative z-30 border-b border-white/10 bg-[#0A1224]/60 backdrop-blur"
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-1 overflow-x-auto">
-          {TABS.filter((t) => t.id !== 'users' || isAdmin).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              aria-current={activeTab === t.id ? 'page' : undefined}
-              className={`px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
-                activeTab === t.id
-                  ? 'text-amber-300 border-amber-400 font-semibold'
-                  : 'text-slate-300 border-transparent hover:text-white'
-              }`}
-            >
-              {t.label}
-              {t.id === 'register' && staff && submissions.length > 0 && (
-                <span className="ml-1.5 px-1.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold">{submissions.length}</span>
-              )}
-              {t.id === 'registrations' && activeRegistrations.length > 0 && (
-                <span className="ml-1.5 text-xs text-slate-400">({activeRegistrations.length})</span>
-              )}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setShowWorkflowGuide((prev) => !prev)}
-            aria-expanded={showWorkflowGuide}
-            className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs text-slate-300 hover:text-amber-300 whitespace-nowrap cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
-            Panduan alur
-          </button>
-        </div>
-      </nav>
-
+      <div className="relative z-10 flex-1 min-w-0 flex flex-col pb-20 lg:pb-0">
       <AnimatePresence>
         {toastNotification && (
           <motion.div
@@ -730,117 +676,102 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6 flex-1">
-        {(activeTab === 'bracket' || activeTab === 'registrations' || activeTab === 'stats') && (
-          <>
-        {/* Esports Portal 3-Step Visual Workflow Guide (Clear, Intuitive UI/UX like esportssulut.ai.studio) */}
-        <AnimatePresence>
-          {showWorkflowGuide && (
-            <motion.section
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden"
+      <main className="w-full max-w-[1240px] mx-auto px-4 sm:px-8 py-6 space-y-6 flex-1">
+        <header className="rounded-[18px] border border-[#24304D] bg-[#0E1830] px-5 sm:px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <span
+              className={`inline-block pl-2.5 pr-3.5 py-1 text-xs font-extrabold tracking-wider text-[#0B1325] ${staff ? 'bg-sky-400' : 'bg-amber-400'}`}
+              style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%)' }}
             >
-              {/* Step 1 */}
-              <div className="p-4 glass-card rounded-xl flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-mono text-amber-300">
-                    <span>LANGKAH 01 · TURNAMEN & REGULASI</span>
-                    <Trophy className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <h3 className="text-sm font-bold text-white">
-                    Pilih atau Buat Turnamen MLBB
-                  </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Atur Match Day, Multi Slot, Skin Bebas, Custom Draft Pick, serta skema Gratis, Gratis Bersyarat (link sosmed aktif), atau Bayar (Bank/E-Wallet/QRIS).
-                  </p>
-                </div>
-                {canManageTournament ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingTournament(null);
-                      setIsTournamentModalOpen(true);
-                    }}
-                    className="w-full py-2 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    + Buat Turnamen Baru
-                  </button>
-                ) : (
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    Klik salah satu kartu turnamen di bawah untuk melihat detail
-                  </span>
-                )}
-              </div>
+              {roleBadgeLabel.toUpperCase()}
+            </span>
+            <h1 className="mt-2 font-display text-2xl sm:text-3xl font-extrabold tracking-wide">{pageTitle}</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {staff && (
+              <span className="min-h-[44px] px-3.5 inline-flex items-center rounded-xl border border-[#24304D] bg-[#0A1224] font-mono text-[13px] text-slate-200">
+                {staff.username}
+              </span>
+            )}
+            {staff && (
+              <button
+                type="button"
+                onClick={() => setIsPasswordModalOpen(true)}
+                aria-label="Ganti password"
+                title="Ganti password"
+                className="w-11 h-11 rounded-xl border border-[#24304D] bg-[#111C36] text-slate-200 hover:text-amber-300 flex items-center justify-center cursor-pointer"
+              >
+                <KeyRound className="w-[18px] h-[18px]" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="min-h-[44px] px-5 rounded-xl border border-[#24304D] bg-[#111C36] text-sm font-semibold text-red-300 hover:bg-red-500/10 cursor-pointer inline-flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" aria-hidden="true" />
+              {staff ? 'Keluar' : 'Ke Login'}
+            </button>
+          </div>
+        </header>
 
-              {/* Step 2 */}
-              <div className="p-4 glass-card rounded-xl flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-mono text-cyan-300">
-                    <span>LANGKAH 02 · SKUAD 5 INTI + 2 CADANGAN</span>
-                    <Users className="w-4 h-4 text-cyan-400" />
-                  </div>
-                  <h3 className="text-sm font-bold text-white">
-                    Daftar Tim dari Database & Verifikasi
-                  </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Kapten memilih 5 pemain inti & maks. 2 cadangan dari Database Master, lalu unggah bukti transfer atau screenshot syarat sosmed untuk diverifikasi panitia.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRegistrationModalOpen(true)}
-                    className="flex-1 py-2 px-3 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    Form Daftar Tim
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('registrations')}
-                    className="py-2 px-3 rounded-lg glass-card text-slate-200 hover:text-white text-xs font-medium transition-colors cursor-pointer"
-                  >
-                    Cek Status ({activeRegistrations.length})
-                  </button>
-                </div>
-              </div>
+        {(activeTab === 'bracket' || activeTab === 'registrations' || activeTab === 'stats') && activeTournament && (
+          <div className="space-y-3">
+            <label className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-bold tracking-[0.08em] text-slate-400">TURNAMEN</span>
+              <select
+                value={activeTournament.id}
+                onChange={(e) => setSelectedTournamentId(e.target.value)}
+                className="min-h-[44px] max-w-full rounded-xl border border-[#24304D] bg-[#0A1224] px-3 text-sm text-slate-100"
+              >
+                {tournaments.map((x) => (
+                  <option key={x.id} value={x.id}>{x.name}</option>
+                ))}
+              </select>
+            </label>
+            {capacityWarning}
+          </div>
+        )}
 
-              {/* Step 3 */}
-              <div className="p-4 glass-card rounded-xl flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-mono text-emerald-300">
-                    <span>LANGKAH 03 · BRACKET & STATISTIK KDA</span>
-                    <Award className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <h3 className="text-sm font-bold text-white">
-                    Jadwal Real-Time & Laporan Performa
-                  </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Bagan otomatis mendukung Single/Double Elimination & Single/Double Round-Robin. Klik kartu laga untuk input skor & performa Hero, Role, KDA, Gold, MVP, dan Rating.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('bracket')}
-                    className="flex-1 py-2 px-3 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    Buka Bracket
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('stats')}
-                    className="py-2 px-3 rounded-lg glass-card text-slate-200 hover:text-white text-xs font-medium transition-colors cursor-pointer"
-                  >
-                    Leaderboard MVP
-                  </button>
-                </div>
-              </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
+        {/* Active View Content with Smooth Motion Transition */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`${activeTab}-${activeTournament?.id}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.22 }}
+          >
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                tournaments={tournaments}
+                tournament={activeTournament}
+                registrations={activeRegistrations}
+                matches={activeMatches}
+                players={players}
+                isStaff={Boolean(staff)}
+                pendingCount={pendingRegistrationsCount}
+                queueCount={submissions.length}
+                contactUrl={contactUrl}
+                onSelectTournament={setSelectedTournamentId}
+                onRegister={() => setIsRegistrationModalOpen(true)}
+                onShare={handleShare}
+                onGo={setActiveTab}
+                onEdit={() => {
+                  setEditingTournament(activeTournament);
+                  setIsTournamentModalOpen(true);
+                }}
+                onNew={() => {
+                  setEditingTournament(null);
+                  setIsTournamentModalOpen(true);
+                }}
+                onRegenerate={handleRegenerateCurrentBracket}
+                onInputScore={(m) => setSelectedMatchForModal(m)}
+              />
+            )}
 
+            {activeTab === 'tournaments' && (
+              <div className="space-y-6">
         {/* Esports Portal Tournament Showcase Selector Cards */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -942,17 +873,7 @@ export default function App() {
           </section>
         )}
 
-        {activeTournament &&
-          (() => {
-            const approved = activeRegistrations.filter((r) => r.status === 'approved').length;
-            const cap = bracketCapacity(activeTournament.bracketFormat);
-            return approved > cap ? (
-              <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/30 text-xs text-amber-100">
-                Format bracket ini menampung maksimal {cap} tim. {approved - cap} tim terverifikasi tidak masuk
-                bracket. Ganti format (mis. Single Elimination atau Round Robin).
-              </div>
-            ) : null;
-          })()}
+        {capacityWarning}
 
         {/* Active Tournament Specification Banner (Following Zero-Pill Metadata Discipline & Glassy Surface) */}
         {activeTournament && (
@@ -1105,19 +1026,9 @@ export default function App() {
               )}
           </section>
         )}
+              </div>
+            )}
 
-          </>
-        )}
-
-        {/* Active View Content with Smooth Motion Transition */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={`${activeTab}-${activeTournament?.id}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.22 }}
-          >
             {activeTab === 'bracket' && activeTournament && (
               <BracketAndStandingsView
                 tournament={activeTournament}
@@ -1213,6 +1124,7 @@ export default function App() {
           {cloudEnabled ? 'Data tersinkron langsung dengan server' : 'Mode demo: data contoh, tidak tersimpan'}
         </div>
       </footer>
+      </div>
 
       {isPasswordModalOpen && (
         <ChangePasswordModal
