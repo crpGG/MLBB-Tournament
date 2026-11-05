@@ -12,6 +12,7 @@ export interface Player {
   teamId?: string;
   signatureHeroes: string[];
   photo?: string; // data URL (antrean) atau URL Storage (setelah disetujui)
+  fullName?: string; // nama lengkap: data pribadi, hanya untuk staf (disimpan di app/private, tidak pernah di data publik)
 }
 
 export interface Team {

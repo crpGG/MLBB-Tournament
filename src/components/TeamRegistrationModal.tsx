@@ -79,6 +79,7 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
   // Quick Add New Player Inline
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [newPlNickname, setNewPlNickname] = useState('');
+  const [newPlFullName, setNewPlFullName] = useState('');
   const [newPlMlbbId, setNewPlMlbbId] = useState('');
   const [newPlServerId, setNewPlServerId] = useState('');
   const [newPlRole, setNewPlRole] = useState<MLBBHeroRole>('Jungler');
@@ -154,9 +155,11 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
 
   const handleQuickCreatePlayer = () => {
     if (!newPlNickname.trim() || !newPlMlbbId.trim() || !newPlServerId.trim()) return;
+    if (newPlFullName.trim().length < 3) return setErrorMessage('Nama lengkap pemain wajib diisi (minimal 3 huruf).');
     const created: Player = {
       id: `pl-new-${Date.now()}`,
       nickname: newPlNickname.trim(),
+      fullName: newPlFullName.trim().replace(/\s+/g, ' '),
       mlbbId: newPlMlbbId.trim(),
       serverId: newPlServerId.trim(),
       primaryRole: newPlRole,
@@ -171,6 +174,7 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
       setSubPlayerIds([...subPlayerIds, created.id]);
     }
     setNewPlNickname('');
+    setNewPlFullName('');
     setNewPlMlbbId('');
     setNewPlServerId('');
     setShowAddPlayer(false);
@@ -617,6 +621,16 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
                   >
                     Simpan Pemain
                   </button>
+                  <input
+                    type="text"
+                    placeholder="Nama lengkap (sesuai KTP / kartu pelajar, hanya dilihat panitia)"
+                    aria-label="Nama lengkap"
+                    autoComplete="off"
+                    maxLength={60}
+                    value={newPlFullName}
+                    onChange={(e) => setNewPlFullName(e.target.value)}
+                    className="sm:col-span-5 px-3 py-1.5 bg-[#111827] border border-slate-700 rounded text-xs text-slate-100"
+                  />
                 </div>
               </div>
             )}

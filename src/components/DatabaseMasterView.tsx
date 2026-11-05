@@ -28,6 +28,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
 
   // New Player Form State
   const [nickname, setNickname] = useState('');
+  const [fullName, setFullName] = useState('');
   const [mlbbId, setMlbbId] = useState('');
   const [serverId, setServerId] = useState('');
   const [primaryRole, setPrimaryRole] = useState<MLBBHeroRole>('Jungler');
@@ -46,10 +47,11 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
 
   const handleCreatePlayer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nickname.trim() || !mlbbId.trim() || !serverId.trim()) return;
+    if (!nickname.trim() || !mlbbId.trim() || !serverId.trim() || fullName.trim().length < 3) return;
     const created: Player = {
       id: `pl-${Date.now()}`,
       nickname: nickname.trim(),
+      fullName: fullName.trim().replace(/\s+/g, ' '),
       mlbbId: mlbbId.trim(),
       serverId: serverId.trim(),
       primaryRole,
@@ -59,6 +61,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
     };
     onAddPlayer(created);
     setNickname('');
+    setFullName('');
     setMlbbId('');
     setServerId('');
   };
@@ -356,6 +359,18 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
                   </option>
                 ))}
               </select>
+              <input
+                type="text"
+                required
+                minLength={3}
+                maxLength={60}
+                autoComplete="off"
+                placeholder="Nama lengkap (sesuai KTP / kartu pelajar, hanya terlihat staf)"
+                aria-label="Nama lengkap"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="sm:col-span-3 md:col-span-6 px-3 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-xs text-slate-100"
+              />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -408,6 +423,7 @@ export const DatabaseMasterView: React.FC<DatabaseMasterViewProps> = ({
                   key={pl.id}
                   player={pl}
                   team={teams.find((t) => t.id === pl.teamId)}
+                  fullName={canManage ? pl.fullName : undefined}
                   actions={
                     canManage && (
                       <button

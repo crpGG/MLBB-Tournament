@@ -226,7 +226,7 @@ export const RegistrationVerificationView: React.FC<
                           >
                             <div>
                               <span className="font-semibold text-slate-100">
-                                {idx + 1}. {p ? p.nickname : pid}
+                                {idx + 1}. {p ? p.nickname : pid}{canVerify && p?.fullName ? <span className="text-emerald-300"> ({p.fullName})</span> : null}
                               </span>
                               <div className="text-[11px] font-mono text-slate-400">
                                 ID: {p ? `${p.mlbbId} (${p.serverId})` : '-'} ·{' '}
@@ -248,7 +248,7 @@ export const RegistrationVerificationView: React.FC<
                           >
                             <div>
                               <span className="font-semibold text-slate-200">
-                                Sub {idx + 1}. {p ? p.nickname : pid}
+                                Sub {idx + 1}. {p ? p.nickname : pid}{canVerify && p?.fullName ? <span className="text-emerald-300"> ({p.fullName})</span> : null}
                               </span>
                               <div className="text-[11px] font-mono text-slate-400">
                                 ID: {p ? `${p.mlbbId} (${p.serverId})` : '-'} ·{' '}
