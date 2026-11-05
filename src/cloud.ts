@@ -25,18 +25,20 @@ import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/
 import { connectStorageEmulator, getDownloadURL, getStorage, ref, uploadString } from 'firebase/storage';
 import type { DbSubmission, Team, TournamentRegistration } from './types/tournament';
 
-// Konfigurasi web Firebase bukan rahasia; keamanan data diatur oleh firestore.rules.
+// Konfigurasi web Firebase bukan rahasia (keamanan data diatur firestore.rules/storage.rules), jadi
+// default-nya ditanam agar build tanpa variabel lingkungan tetap terhubung. VITE_* yang terisi menimpa
+// default (kosong = pakai default); VITE_DEMO=true mematikan cloud untuk mode demo/tes.
 const env = import.meta.env;
 const config = {
-  apiKey: env.VITE_FIREBASE_API_KEY,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: env.VITE_FIREBASE_PROJECT_ID,
-  appId: env.VITE_FIREBASE_APP_ID,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
+  apiKey: env.VITE_FIREBASE_API_KEY || 'AIzaSyBM4NKvB2m_2d7i4SQWPZ3_TcOIlQodcfM',
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || 'arenadawn-mlbb.firebaseapp.com',
+  projectId: env.VITE_FIREBASE_PROJECT_ID || 'arenadawn-mlbb',
+  appId: env.VITE_FIREBASE_APP_ID || '1:62973318535:web:d09db60440c111a7c22f22',
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || 'arenadawn-mlbb.firebasestorage.app',
 };
 
 /** Tanpa konfigurasi Firebase aplikasi berjalan sebagai demo pengunjung (data contoh, tanpa login staf). */
-export const cloudEnabled = Boolean(config.apiKey && config.projectId);
+export const cloudEnabled = env.VITE_DEMO !== 'true' && Boolean(config.apiKey && config.projectId);
 
 const app = cloudEnabled ? initializeApp(config) : null;
 const auth = app ? getAuth(app) : null!;
