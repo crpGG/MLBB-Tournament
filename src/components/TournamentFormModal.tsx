@@ -128,6 +128,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   const [newReqDesc, setNewReqDesc] = useState('');
 
   const [regenerateBracket, setRegenerateBracket] = useState(!editingTournament);
+  const [formError, setFormError] = useState('');
 
   if (!isOpen) return null;
 
@@ -177,8 +178,6 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
     setNewReqUrl('');
     setNewReqDesc('');
   };
-
-  const [formError, setFormError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

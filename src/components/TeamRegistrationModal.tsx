@@ -206,9 +206,14 @@ export const TeamRegistrationModal: React.FC<TeamRegistrationModalProps> = ({
 
   const handleCopyAccount = (id: string, text?: string) => {
     if (!text) return;
-    navigator.clipboard?.writeText(text);
-    setCopiedAccountId(id);
-    setTimeout(() => setCopiedAccountId(null), 1800);
+    // Izin clipboard bisa ditolak (HTTP, iframe, pengaturan browser): jangan tampilkan "tersalin" bila gagal.
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopiedAccountId(id);
+        setTimeout(() => setCopiedAccountId(null), 1800);
+      },
+      () => undefined
+    );
   };
 
   const filteredPlayers = allAvailablePlayers.filter((p) => {
