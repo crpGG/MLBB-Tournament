@@ -1134,16 +1134,6 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* Quiet Glassy Footer */}
-      <footer className="relative z-10 border-t border-white/10 bg-[#070D19]/80 backdrop-blur-md py-5 px-6 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div>
-          ArenaDawn — Portal Turnamen & Manajemen Statistik Esport Mobile Legends: Bang Bang
-        </div>
-        <div className="text-slate-500">
-          {cloudEnabled ? 'Data tersinkron langsung dengan server' : 'Mode demo: data contoh, tidak tersimpan'}
-        </div>
-      </footer>
       </div>
 
       {isPasswordModalOpen && (
