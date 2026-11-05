@@ -1,48 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { FastForward, Sparkles } from 'lucide-react';
 
 interface MLBBAlucardLoadingScreenProps {
   userName: string;
   userRoleLabel: string;
+  ready: boolean; // data awal sudah diterima
   onComplete: () => void;
 }
 
 const LOADING_STAGES = [
-  { threshold: 0, text: 'Game Loading... Connecting to Land of Dawn Server' },
-  { threshold: 24, text: 'Verifying Account & Tournament Access Permissions...' },
-  { threshold: 52, text: 'Synchronizing Bracket Engine (Single/Double Elim & Round-Robin)...' },
-  { threshold: 78, text: 'Loading Master Database Tim, Player & Real-Time KDA Stats...' },
-  { threshold: 95, text: 'Entering ArenaDawn MLBB Tournament Lobby...' },
+  { threshold: 0, text: 'Menyiapkan portal...' },
+  { threshold: 40, text: 'Memuat data turnamen...' },
+  { threshold: 90, text: 'Membuka lobby...' },
 ];
 
 export const MLBBAlucardLoadingScreen: React.FC<MLBBAlucardLoadingScreenProps> = ({
   userName,
   userRoleLabel,
+  ready,
   onComplete,
 }) => {
   const [progress, setProgress] = useState(0);
+  const onCompleteRef = useRef(onComplete);
+  const readyRef = useRef(ready);
+  onCompleteRef.current = onComplete;
+  readyRef.current = ready;
 
+  // Bar naik ke 90% dalam ~1,2 detik lalu menunggu data benar-benar sampai (maks. 6 detik), baru masuk lobby.
   useEffect(() => {
-    const durationMs = 3100;
     const intervalMs = 35;
-    const increment = 100 / (durationMs / intervalMs);
-
+    const step = 90 / (1200 / intervalMs);
+    const start = Date.now();
+    let finished = false;
     const timer = setInterval(() => {
       setProgress((prev) => {
-        if (prev + increment >= 100) {
+        if (prev < 90) return Math.min(90, prev + step);
+        if (!readyRef.current && Date.now() - start < 6000) return prev;
+        if (!finished) {
+          finished = true;
           clearInterval(timer);
-          setTimeout(() => {
-            onComplete();
-          }, 280);
-          return 100;
+          setTimeout(() => onCompleteRef.current(), 200);
         }
-        return prev + increment;
+        return 100;
       });
     }, intervalMs);
-
     return () => clearInterval(timer);
-  }, [onComplete]);
+  }, []);
 
   const currentStageText =
     [...LOADING_STAGES]
@@ -152,7 +156,7 @@ export const MLBBAlucardLoadingScreen: React.FC<MLBBAlucardLoadingScreenProps> =
       <div className="relative z-20 flex items-center justify-between px-6 pt-4">
         <div className="flex items-center gap-3">
           <span className="px-3 py-1 rounded glass-card text-[11px] font-mono text-slate-200 border border-white/15">
-            Current Version: 1.1.86.163.1 · ArenaDawn Esports Engine
+            ArenaDawn MLBB · Portal Turnamen
           </span>
         </div>
 

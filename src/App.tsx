@@ -546,6 +546,14 @@ export default function App() {
   };
 
   const handleApproveSubmission = async (sub: DbSubmission) => {
+    // Pengunjung tidak bisa melihat antrean, jadi ID MLBB ganda baru ketahuan di sini.
+    const dup = sub.players.find((np) =>
+      players.some((p) => p.id !== np.id && p.mlbbId.trim() === np.mlbbId.trim() && p.serverId.trim() === np.serverId.trim())
+    );
+    if (dup) {
+      showToast(`ID MLBB ${dup.mlbbId} (${dup.serverId}) sudah ada di Database. Tolak pendaftaran ini atau hapus data lama dulu.`);
+      return;
+    }
     if (sub.players.length) {
       setPlayers((prev) => [...prev, ...sub.players.filter((np) => !prev.some((p) => p.id === np.id))]);
     }
@@ -582,6 +590,7 @@ export default function App() {
         onStaffLogin={(profile) => enterLobby(profile)}
         onVisitor={() => enterLobby(null)}
         tournaments={tournaments}
+        loading={cloudEnabled && !stateLoaded}
       />
     );
   }
@@ -592,6 +601,7 @@ export default function App() {
       <MLBBAlucardLoadingScreen
         userName={sessionName}
         userRoleLabel={roleBadgeLabel}
+        ready={!cloudEnabled || stateLoaded}
         onComplete={() => {
           setScreenStage('lobby');
           showToast(`Selamat datang di Lobby ArenaDawn, ${sessionName}!`);
@@ -601,6 +611,7 @@ export default function App() {
   }
 
   const capacityWarning = (() => {
+    if (!activeTournament) return null; // belum ada turnamen (mis. database baru): tidak ada yang diperingatkan
     const approved = activeRegistrations.filter((r) => r.status === 'approved').length;
     const cap = bracketCapacity(activeTournament.bracketFormat);
     return approved > cap ? (
@@ -1097,6 +1108,13 @@ export default function App() {
                 }}
                 onDeletePlayer={(pid) => {
                   setPlayers((prev) => prev.filter((p) => p.id !== pid));
+                  setTeams((prev) =>
+                    prev.map((t) =>
+                      t.memberPlayerIds.includes(pid)
+                        ? { ...t, memberPlayerIds: t.memberPlayerIds.filter((x) => x !== pid) }
+                        : t
+                    )
+                  );
                   showToast('Data pemain dihapus dari database.');
                 }}
                 onAddTeam={(newT) => {
@@ -1105,6 +1123,8 @@ export default function App() {
                 }}
                 onDeleteTeam={(tid) => {
                   setTeams((prev) => prev.filter((t) => t.id !== tid));
+                  // anggota jadi "tanpa tim", bukan menunjuk ke tim yang sudah tidak ada
+                  setPlayers((prev) => prev.map((p) => (p.teamId === tid ? { ...p, teamId: undefined } : p)));
                   showToast('Data tim dihapus dari database.');
                 }}
               />
