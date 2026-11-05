@@ -83,6 +83,8 @@ export interface Tournament {
   bracketFormat: BracketFormat;
   maxTeams: number;
   prizePool: string;
+  posterUrl?: string; // poster turnamen (data URL saat diedit, URL Storage setelah disimpan)
+  contactWhatsapp?: string; // kontak panitia yang tampil publik di tombol "Hubungi Panitia"
   createdAt: string;
 }
 

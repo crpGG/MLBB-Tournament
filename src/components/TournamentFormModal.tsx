@@ -29,6 +29,8 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   const [organizer, setOrganizer] = useState(
     editingTournament?.organizer || 'Panitia Resmi ArenaDawn'
   );
+  const [posterUrl, setPosterUrl] = useState(editingTournament?.posterUrl || '');
+  const [contactWhatsapp, setContactWhatsapp] = useState(editingTournament?.contactWhatsapp || '');
   const [description, setDescription] = useState(
     editingTournament?.description ||
       'Turnamen komunitas & kompetitif Mobile Legends dengan sistem bracket otomatis dan pelaporan statistik individu pemain.'
@@ -244,6 +246,8 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
       bracketFormat,
       maxTeams,
       prizePool: prizePool.trim(),
+      ...(posterUrl ? { posterUrl } : {}),
+      ...(contactWhatsapp.trim() ? { contactWhatsapp: contactWhatsapp.trim() } : {}),
       createdAt: editingTournament?.createdAt || new Date().toISOString().slice(0, 10),
     };
     onSave(saved, regenerateBracket);
@@ -302,6 +306,52 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                   onChange={(e) => setOrganizer(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-4 items-start">
+              <div>
+                <span className="block text-xs font-medium text-slate-300 mb-1.5">Poster Turnamen (2:3)</span>
+                <div className="aspect-[2/3] rounded-lg border border-slate-700 bg-[#0B0F17] overflow-hidden flex items-center justify-center text-[11px] text-slate-500 text-center p-2">
+                  {posterUrl ? (
+                    <img src={posterUrl} alt="Pratinjau poster" className="w-full h-full object-cover" />
+                  ) : (
+                    'Belum ada poster'
+                  )}
+                </div>
+                <div className="mt-1.5 flex gap-1.5">
+                  <label className="flex-1 text-center px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs text-slate-200 cursor-pointer">
+                    {posterUrl ? 'Ganti' : 'Unggah'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (f) readImageCompressed(f, 720, 0.82).then(setPosterUrl, () => undefined);
+                      }}
+                    />
+                  </label>
+                  {posterUrl && (
+                    <button type="button" onClick={() => setPosterUrl('')} className="px-2 py-1.5 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-rose-300 cursor-pointer">
+                      Hapus
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  WhatsApp Panitia (tombol "Hubungi Panitia")
+                </label>
+                <input
+                  type="tel"
+                  value={contactWhatsapp}
+                  onChange={(e) => setContactWhatsapp(e.target.value)}
+                  placeholder="0812-xxxx-xxxx"
+                  className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm font-mono text-slate-100 focus:outline-none focus:border-amber-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">Tampil untuk publik. Kosongkan untuk menyembunyikan tombol.</p>
               </div>
             </div>
 
