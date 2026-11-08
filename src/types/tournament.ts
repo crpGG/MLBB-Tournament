@@ -84,6 +84,10 @@ export interface Tournament {
   bracketFormat: BracketFormat;
   maxTeams: number;
   prizePool: string;
+  // Pengaturan bracket (gaya Challonge)
+  thirdPlaceMatch?: boolean; // Single Elimination: tambahkan laga perebutan juara 3
+  grandFinalReset?: boolean; // Double Elimination: Grand Final 2 laga (bracket reset) bila juara Lower menang
+  roundRobinCycles?: 1 | 2 | 3; // Round Robin: tiap tim saling bertemu 1x/2x/3x (default 1; 'double_round_robin' lama = 2)
   posterUrl?: string; // poster turnamen (data URL saat diedit, URL Storage setelah disimpan)
   contactWhatsapp?: string; // kontak panitia yang tampil publik di tombol "Hubungi Panitia"
   createdAt: string;
@@ -117,6 +121,7 @@ export interface TournamentRegistration {
   verifiedBy?: string;
   verifiedAt?: string;
   registeredAt: string;
+  seed?: number; // urutan seed di bracket (1 = unggulan teratas); kosong = menurut waktu daftar
   // Hanya pada pendaftaran dari pengunjung: tim/pemain baru yang masuk database saat disetujui.
   newTeam?: Team;
   newPlayers?: Player[];
@@ -140,7 +145,7 @@ export interface PlayerMatchStat {
 export interface Match {
   id: string;
   tournamentId: string;
-  stage: 'upper' | 'lower' | 'grand_final' | 'round_robin';
+  stage: 'upper' | 'lower' | 'grand_final' | 'third_place' | 'round_robin';
   roundNumber: number;
   roundName: string;
   matchOrder: number;
@@ -158,6 +163,10 @@ export interface Match {
   nextWinnerSlot?: 'A' | 'B';
   nextLoserMatchId?: string;
   nextLoserSlot?: 'A' | 'B';
+  pos?: number; // posisi laga di dalam ronde pada bracket penuh (untuk tata letak pohon bracket)
+  resetMatchId?: string; // Grand Final 1: laga ke-2 yang hanya dimainkan bila juara Lower menang
+  optional?: boolean; // laga cadangan (Grand Final ke-2)
+  skipped?: boolean; // laga cadangan yang tidak diperlukan
   playerStats: PlayerMatchStat[];
 }
 

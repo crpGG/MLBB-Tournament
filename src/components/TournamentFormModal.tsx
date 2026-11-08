@@ -8,7 +8,7 @@ import {
 } from '../types/tournament';
 import { readImageCompressed } from '../utils/image';
 import { shiftDate, todayLocal } from '../utils/tournamentStatus';
-import { formatIndonesianDate } from '../utils/bracketEngine';
+import { bracketCapacity, describeSeries, formatIndonesianDate } from '../utils/bracketEngine';
 import { Plus, Trash2, Upload, X, ExternalLink, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
 
 interface TournamentFormModalProps {
@@ -56,16 +56,17 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
 
   // Format & MLBB Specific Options
   const [bracketFormat, setBracketFormat] = useState<BracketFormat>(
-    editingTournament?.bracketFormat || 'single_round_robin'
+    editingTournament?.bracketFormat === 'double_round_robin'
+      ? 'single_round_robin'
+      : editingTournament?.bracketFormat || 'single_elimination'
   );
-  const [seriesSystem, setSeriesSystem] = useState(
-    editingTournament?.seriesSystem || 'Sistem Liga BO1 | Total 5 Babak'
+  const [thirdPlaceMatch, setThirdPlaceMatch] = useState(!!editingTournament?.thirdPlaceMatch);
+  const [grandFinalReset, setGrandFinalReset] = useState(!!editingTournament?.grandFinalReset);
+  const [rrCycles, setRrCycles] = useState<1 | 2 | 3>(
+    editingTournament?.roundRobinCycles ?? (editingTournament?.bracketFormat === 'double_round_robin' ? 2 : 1)
   );
   const [defaultBestOf, setDefaultBestOf] = useState<1 | 3 | 5 | 7>(
     editingTournament?.defaultBestOf || 1
-  );
-  const [totalRounds, setTotalRounds] = useState<number>(
-    editingTournament?.totalRounds || 5
   );
   const [venueType, setVenueType] = useState<'Online' | 'Offline' | 'Hybrid'>(
     editingTournament?.venueType || 'Online'
@@ -213,11 +214,20 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
       skinRule,
       tierRule,
       gameMode,
-      seriesSystem,
+      seriesSystem: describeSeries({
+        bracketFormat,
+        defaultBestOf,
+        thirdPlaceMatch,
+        grandFinalReset,
+        roundRobinCycles: rrCycles,
+      }),
       defaultBestOf,
-      totalRounds,
+      totalRounds: editingTournament?.totalRounds ?? 0,
       bracketFormat,
-      maxTeams,
+      thirdPlaceMatch: bracketFormat === 'single_elimination' ? thirdPlaceMatch : false,
+      grandFinalReset: bracketFormat === 'double_elimination' ? grandFinalReset : false,
+      roundRobinCycles: rrCycles,
+      maxTeams: Math.min(maxTeams, bracketCapacity(bracketFormat)),
       prizePool: prizePool.trim(),
       ...(posterUrl ? { posterUrl } : {}),
       ...(contactWhatsapp.trim() ? { contactWhatsapp: contactWhatsapp.trim() } : {}),
@@ -340,8 +350,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 >
                   <option value="single_elimination">Single Elimination (Gugur Tunggal)</option>
                   <option value="double_elimination">Double Elimination (Upper & Lower Bracket)</option>
-                  <option value="single_round_robin">Single Round-Robin (Klasemen Liga 1 Putaran)</option>
-                  <option value="double_round_robin">Double Round-Robin (Klasemen Liga 2 Putaran)</option>
+                  <option value="single_round_robin">Round Robin (Liga, semua tim saling bertemu)</option>
                 </select>
               </div>
               <div>
@@ -643,54 +652,47 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                 </select>
               </div>
 
-              {/* Sistem Liga & Babak */}
-              <div>
+              {/* Seri pertandingan & opsi bracket */}
+              <div className="space-y-2">
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Sistem Liga & Format Babak
+                  Seri Pertandingan (Best of)
                 </label>
                 <select
-                  value={seriesSystem}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSeriesSystem(val);
-                    if (val.includes('BO1')) setDefaultBestOf(1);
-                    else if (val.includes('BO3')) setDefaultBestOf(3);
-                    else if (val.includes('BO5')) setDefaultBestOf(5);
-                    if (val.includes('5 Babak')) setTotalRounds(5);
-                  }}
+                  value={defaultBestOf}
+                  onChange={(e) => setDefaultBestOf(Number(e.target.value) as 1 | 3 | 5 | 7)}
                   className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm text-slate-100"
                 >
-                  <option value="Sistem Liga BO1 | Total 5 Babak">
-                    Sistem Liga BO1 | Total 5 Babak
-                  </option>
-                  <option value="Sistem Liga BO3 | Total 5 Babak">
-                    Sistem Liga BO3 | Total 5 Babak
-                  </option>
-                  <option value="Penyisihan BO1 | Semifinal BO3 | Grand Final BO5">
-                    Penyisihan BO1 | Semifinal BO3 | Grand Final BO5
-                  </option>
-                  <option value="Double Elimination BO3 | Grand Final BO5">
-                    Double Elimination BO3 | Grand Final BO5
-                  </option>
-                  <option value="Full Series BO3">Full Series BO3</option>
+                  {[1, 3, 5, 7].map((n) => (
+                    <option key={n} value={n}>BO{n}</option>
+                  ))}
                 </select>
+                {bracketFormat === 'single_elimination' && (
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={thirdPlaceMatch} onChange={(e) => setThirdPlaceMatch(e.target.checked)} />
+                    Laga perebutan juara 3
+                  </label>
+                )}
+                {bracketFormat === 'double_elimination' && (
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={grandFinalReset} onChange={(e) => setGrandFinalReset(e.target.checked)} />
+                    Grand Final 2 laga (reset)
+                  </label>
+                )}
+                {bracketFormat === 'single_round_robin' && (
+                  <select
+                    value={rrCycles}
+                    onChange={(e) => setRrCycles(Number(e.target.value) as 1 | 2 | 3)}
+                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm text-slate-100"
+                  >
+                    <option value={1}>Saling bertemu 1x</option>
+                    <option value={2}>Saling bertemu 2x</option>
+                    <option value={3}>Saling bertemu 3x</option>
+                  </select>
+                )}
               </div>
 
-              {/* Total Babak & Kuota Slot */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Total Babak
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={14}
-                    value={totalRounds}
-                    onChange={(e) => setTotalRounds(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-[#0B0F17] border border-slate-700 rounded-lg text-sm font-mono text-slate-100"
-                  />
-                </div>
+              {/* Kuota Slot */}
+              <div className="grid grid-cols-1 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
                     Kuota Tim
@@ -704,6 +706,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
                     <option value={8}>8 Tim</option>
                     <option value={16}>16 Tim</option>
                     <option value={32}>32 Tim</option>
+                    {bracketFormat === 'single_elimination' && <option value={64}>64 Tim</option>}
                   </select>
                 </div>
               </div>

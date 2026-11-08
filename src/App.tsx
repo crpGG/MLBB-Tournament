@@ -35,6 +35,7 @@ import {
 import {
   bracketCapacity,
   formatIndonesianDate,
+  describeSeries,
   generateTournamentMatches,
   propagateMatchOutcome,
 } from './utils/bracketEngine';
@@ -99,6 +100,7 @@ const toPublicRegs = (regs: TournamentRegistration[]): TournamentRegistration[] 
       verifiedBy: r.verifiedBy,
       verifiedAt: r.verifiedAt,
       registeredAt: r.registeredAt,
+      seed: r.seed,
     }));
 
 const waLink = (n?: string) => {
@@ -334,34 +336,9 @@ export default function App() {
     }
 
     if (shouldRegenerateBracket) {
-      let currentRegs = registrations.filter(
+      const currentRegs = registrations.filter(
         (r) => r.tournamentId === savedTournament.id && r.status === 'approved'
       );
-
-      // If brand new tournament, seed first 4 teams from Master Database so bracket is immediately visible
-      if (!exists && currentRegs.length === 0 && teams.length >= 4) {
-        const seededRegs: TournamentRegistration[] = teams
-          .slice(0, 4)
-          .map((tm) => ({
-            id: `reg-seed-${savedTournament.id}-${tm.id}`,
-            tournamentId: savedTournament.id,
-            teamId: tm.id,
-            teamName: tm.name,
-            teamTag: tm.tag,
-            slotIndex: 1,
-            captainName: tm.captainName,
-            whatsapp: tm.whatsapp,
-            corePlayerIds: tm.memberPlayerIds.slice(0, 5),
-            subPlayerIds: tm.memberPlayerIds.slice(5, 7),
-            feeTypeSnapshot: savedTournament.feeType,
-            requirementSubmissions: [],
-            status: 'approved',
-            verifiedBy: 'Auto-Seed Panitia',
-            registeredAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
-          }));
-        setRegistrations((prev) => [...prev, ...seededRegs]);
-        currentRegs = seededRegs;
-      }
 
       const generated = generateTournamentMatches(savedTournament, currentRegs);
       setMatches((prev) => [
@@ -379,33 +356,31 @@ export default function App() {
     );
   };
 
-  // Handler for Changing Bracket Format on the fly
-  const handleChangeBracketFormat = (newFormat: BracketFormat) => {
+  // Ubah format/pengaturan bracket (format, BO, juara 3, reset grand final, putaran liga).
+  const handleUpdateBracketSettings = (patch: Partial<Tournament>) => {
     if (!activeTournament || !confirmDiscardResults()) return;
-    const updated: Tournament = {
-      ...activeTournament,
-      bracketFormat: newFormat,
-      seriesSystem:
-        newFormat === 'single_round_robin'
-          ? 'Sistem Liga BO1 | Total 5 Babak'
-          : newFormat === 'double_round_robin'
-          ? 'Liga 2 Putaran (Home/Away) BO1'
-          : newFormat === 'double_elimination'
-          ? 'Double Elimination BO3 | Grand Final BO5'
-          : 'Single Elimination BO3 | Grand Final BO5',
-    };
-
-    setTournaments((prev) =>
-      prev.map((t) => (t.id === updated.id ? updated : t))
-    );
-
+    const merged = { ...activeTournament, ...patch };
+    const updated: Tournament = { ...merged, seriesSystem: describeSeries(merged) };
+    setTournaments((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     const approved = activeRegistrations.filter((r) => r.status === 'approved');
-    const generated = generateTournamentMatches(updated, approved);
     setMatches((prev) => [
       ...prev.filter((m) => m.tournamentId !== updated.id),
-      ...generated,
+      ...generateTournamentMatches(updated, approved),
     ]);
-    showToast(`Format bracket diubah ke ${newFormat.replace(/_/g, ' ').toUpperCase()}.`);
+    showToast(`Pengaturan bracket diperbarui: ${updated.seriesSystem}.`);
+  };
+
+  // Atur nomor seed (kosong = urut waktu daftar) lalu susun ulang bracket.
+  const handleSetSeed = (regId: string, seed: number | undefined) => {
+    if (!activeTournament || !confirmDiscardResults()) return;
+    const updatedRegs = registrations.map((r) => (r.id === regId ? { ...r, seed } : r));
+    setRegistrations(updatedRegs);
+    const approved = updatedRegs.filter((r) => r.tournamentId === activeTournament.id && r.status === 'approved');
+    setMatches((prev) => [
+      ...prev.filter((m) => m.tournamentId !== activeTournament.id),
+      ...generateTournamentMatches(activeTournament, approved),
+    ]);
+    showToast('Seeding diperbarui & bracket disusun ulang.');
   };
 
   const handleRegenerateCurrentBracket = () => {
@@ -525,9 +500,15 @@ export default function App() {
 
   // Handler for Saving Match Score & Player Stats
   const handleSaveMatch = (updatedMatch: Match) => {
-    setMatches((prev) => propagateMatchOutcome(prev, updatedMatch));
+    const next = propagateMatchOutcome(matches, updatedMatch);
+    const reset = next.filter((m) => {
+      const old = matches.find((o) => o.id === m.id);
+      return m.id !== updatedMatch.id && old && old.status !== 'scheduled' && m.status === 'scheduled';
+    }).length;
+    setMatches(next);
     showToast(
-      `Skor & statistik pertandingan ${updatedMatch.roundName} berhasil diperbarui.`
+      `Skor ${updatedMatch.roundName} disimpan.` +
+        (reset ? ` ${reset} laga berikutnya direset karena pesertanya berubah; isi ulang skornya.` : '')
     );
   };
 
@@ -1051,7 +1032,8 @@ export default function App() {
                 matches={activeMatches}
                 canManage={canManageTournament}
                 onSelectMatch={(m) => setSelectedMatchForModal(m)}
-                onChangeBracketFormat={handleChangeBracketFormat}
+                onUpdateSettings={handleUpdateBracketSettings}
+                onSetSeed={handleSetSeed}
                 onRegenerateBracket={handleRegenerateCurrentBracket}
               />
             )}
