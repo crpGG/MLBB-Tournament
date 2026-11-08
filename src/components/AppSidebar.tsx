@@ -7,6 +7,7 @@ export type MainTab =
   | 'tournaments'
   | 'registrations'
   | 'stats'
+  | 'poster'
   | 'register'
   | 'database'
   | 'users';

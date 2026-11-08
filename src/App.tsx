@@ -45,6 +45,7 @@ import { MLBBAlucardLoadingScreen } from './components/MLBBAlucardLoadingScreen'
 import { TournamentFormModal } from './components/TournamentFormModal';
 import { TeamRegistrationModal } from './components/TeamRegistrationModal';
 import { MatchScoreStatsModal } from './components/MatchScoreStatsModal';
+import { PosterStudioView } from './components/PosterStudioView';
 import { BracketAndStandingsView } from './components/BracketAndStandingsView';
 import { RegistrationVerificationView } from './components/RegistrationVerificationView';
 import { PlayerStatsLeaderboardView } from './components/PlayerStatsLeaderboardView';
@@ -57,6 +58,7 @@ import {
   CheckCircle2,
   CreditCard,
   Edit3,
+  Trash2,
   ExternalLink,
   KeyRound,
   LogOut,
@@ -383,6 +385,15 @@ export default function App() {
     showToast('Seeding diperbarui & bracket disusun ulang.');
   };
 
+  const handleDeleteTournament = (trn: Tournament) => {
+    if (!window.confirm(`Hapus turnamen "${trn.name}" beserta bracket dan hasil lajunya? Tindakan ini tidak bisa dibatalkan.`)) return;
+    setTournaments((prev) => prev.filter((t) => t.id !== trn.id));
+    setMatches((prev) => prev.filter((m) => m.tournamentId !== trn.id));
+    setRegistrations((prev) => prev.filter((r) => r.tournamentId !== trn.id));
+    if (selectedTournamentId === trn.id) setSelectedTournamentId('');
+    showToast(`Turnamen "${trn.name}" dihapus.`);
+  };
+
   const handleRegenerateCurrentBracket = () => {
     if (!activeTournament || !confirmDiscardResults()) return;
     const approved = activeRegistrations.filter((r) => r.status === 'approved');
@@ -613,6 +624,7 @@ export default function App() {
     { id: 'tournaments', label: 'Daftar Turnamen' },
     { id: 'registrations', label: staff ? 'Verifikasi Pendaftaran' : 'Peserta Turnamen', badge: staff ? pendingRegistrationsCount : undefined },
     { id: 'stats', label: 'Statistik Pemain' },
+    { id: 'poster', label: 'Poster Turnamen' },
     { id: 'register', label: 'Daftar Tim & Player', badge: staff ? submissions.length : undefined },
     { id: 'database', label: 'Database Tim & Player' },
     ...(isAdmin ? [{ id: 'users' as MainTab, label: 'Manajemen User' }] : []),
@@ -840,6 +852,29 @@ export default function App() {
                     </p>
                   </div>
 
+                  {canManageTournament && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTournamentId(trn.id);
+                          setEditingTournament(trn);
+                          setIsTournamentModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium glass-card hover:border-amber-400/50 text-slate-100 rounded-lg cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-amber-400" /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTournament(trn)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium glass-card hover:border-rose-400/60 text-rose-300 rounded-lg cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Hapus
+                      </button>
+                    </div>
+                  )}
+
                   <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs font-mono">
                     <span className="text-slate-300">
                       Match: {formatIndonesianDate(trn.matchDayDate)}
@@ -1059,6 +1094,16 @@ export default function App() {
                 registrations={registrations}
                 canManage={canManageTournament}
                 onSelectMatch={(m) => setSelectedMatchForModal(m)}
+              />
+            )}
+
+            {activeTab === 'poster' && activeTournament && (
+              <PosterStudioView
+                tournament={activeTournament}
+                registrations={activeRegistrations}
+                matches={activeMatches}
+                teams={teams}
+                players={players}
               />
             )}
 
