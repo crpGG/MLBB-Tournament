@@ -46,39 +46,48 @@ export function getDisplayTeamName(
   return reg.teamName;
 }
 
-/**
- * Generates matches for Single Elimination, Double Elimination,
- * Single Round-Robin, or Double Round-Robin.
- */
-export function generateTournamentMatches(
-  tournament: Tournament,
-  approvedRegistrations: TournamentRegistration[]
-): Match[] {
-  const regs = [...approvedRegistrations];
-  if (regs.length < 2) return [];
+// ===========================================================================
+// Mesin bracket (mengikuti cara kerja Challonge)
+//  - Single/Double Elimination untuk jumlah tim berapa pun: bracket dibuat untuk ukuran pangkat dua,
+//    lalu laga yang lawannya "bye" dihapus dan pemenangnya langsung maju (setara putaran kualifikasi Challonge).
+//  - Seeding: seed 1 melawan seed terakhir; bye jatuh ke seed teratas.
+//  - Round Robin: semua bertemu semua, 1x/2x/3x.
+// ===========================================================================
 
-  const format = tournament.bracketFormat;
-  if (format === 'single_elimination') {
-    return generateSingleElimination(tournament, regs);
-  }
-  if (format === 'double_elimination') {
-    return generateDoubleElimination(tournament, regs);
-  }
-  if (format === 'single_round_robin') {
-    return generateRoundRobin(tournament, regs, false);
-  }
-  return generateRoundRobin(tournament, regs, true);
-}
-
-/** Maksimal tim per format. DE masih bracket 4 tim tetap (lihat generateDoubleElimination). */
+/** Batas jumlah tim per format (struktur laga tersimpan di satu dokumen Firestore). */
 export function bracketCapacity(format: Tournament['bracketFormat']): number {
-  if (format === 'single_elimination') return 32;
-  if (format === 'double_elimination') return 4;
-  return 64;
+  if (format === 'single_elimination') return 64;
+  if (format === 'double_elimination') return 32;
+  return 32;
 }
 
-// Urutan seed standar: seed 1 vs terakhir, dst. Slot kosong (bye) jatuh ke seed teratas.
-function seedOrder(size: number): number[] {
+/** Urutan seed: seed eksplisit lebih dulu, lalu waktu daftar; tim baru otomatis di urutan paling bawah. */
+export function seedOrder(regs: TournamentRegistration[]): TournamentRegistration[] {
+  return [...regs].sort(
+    (a, b) =>
+      (a.seed ?? Infinity) - (b.seed ?? Infinity) ||
+      a.registeredAt.localeCompare(b.registeredAt) ||
+      a.id.localeCompare(b.id)
+  );
+}
+
+/** Ringkasan format untuk ditampilkan (menggantikan teks bebas). */
+export function describeSeries(t: Pick<Tournament, 'bracketFormat' | 'defaultBestOf' | 'thirdPlaceMatch' | 'grandFinalReset' | 'roundRobinCycles'>): string {
+  const bo = t.defaultBestOf;
+  if (t.bracketFormat === 'single_elimination') {
+    return `Single Elimination | BO${bo} | Final BO${bo >= 5 ? bo : 5}${t.thirdPlaceMatch ? ' | Juara 3' : ''}`;
+  }
+  if (t.bracketFormat === 'double_elimination') {
+    return `Double Elimination | BO${bo} | Grand Final BO${bo >= 5 ? bo : 5}${t.grandFinalReset ? ' (2 laga)' : ''}`;
+  }
+  return `Round Robin ${roundRobinCycles(t)}x | BO${bo}`;
+}
+
+export const roundRobinCycles = (t: Pick<Tournament, 'bracketFormat' | 'roundRobinCycles'>): 1 | 2 | 3 =>
+  t.roundRobinCycles ?? (t.bracketFormat === 'double_round_robin' ? 2 : 1);
+
+// Posisi slot untuk ukuran pangkat dua: seed 1 vs seed terakhir, dst. (indeks 0-based)
+function seedSlots(size: number): number[] {
   let s = [0];
   while (s.length < size) {
     const m = s.length * 2;
@@ -87,347 +96,336 @@ function seedOrder(size: number): number[] {
   return s;
 }
 
-function generateSingleElimination(
-  tournament: Tournament,
-  regs: TournamentRegistration[]
-): Match[] {
-  const cap = bracketCapacity('single_elimination');
-  const list = regs.slice(0, cap);
-  const size = Math.max(4, 2 ** Math.ceil(Math.log2(list.length)));
-  const slots = seedOrder(size).map((i) => list[i] ?? null);
-  const rounds = Math.log2(size);
-  const prefix = `m-${tournament.id}`;
-  const idOf = (r: number, i: number) => (r === rounds ? `${prefix}-gf` : `${prefix}-r${r}m${i + 1}`);
-  const nameOf = (r: number, i: number) =>
-    r === rounds
-      ? 'Grand Final'
-      : r === rounds - 1
-      ? `Semifinal ${i + 1}`
-      : r === rounds - 2
-      ? `Perempat Final ${i + 1}`
-      : `Babak ${size / 2 ** (r - 1)} Besar ${i + 1}`;
-  const bestOf = (r: number): Match['bestOf'] =>
-    r === rounds ? 5 : r === rounds - 1 && tournament.defaultBestOf === 1 ? 3 : tournament.defaultBestOf;
-
-  const matches: Match[] = [];
-  let order = 1;
-  for (let r = 1; r <= rounds; r++) {
-    const count = size / 2 ** r;
-    for (let i = 0; i < count; i++) {
-      const first = r === 1;
-      matches.push({
-        id: idOf(r, i),
-        tournamentId: tournament.id,
-        stage: r === rounds ? 'grand_final' : 'upper',
-        roundNumber: r,
-        roundName: nameOf(r, i),
-        matchOrder: order,
-        teamARegistrationId: first ? slots[i * 2]?.id ?? null : null,
-        teamBRegistrationId: first ? slots[i * 2 + 1]?.id ?? null : null,
-        scoreA: 0,
-        scoreB: 0,
-        bestOf: bestOf(r),
-        scheduledDate: tournament.matchDayDate,
-        scheduledTime: `${String(12 + ((order - 1) % 10)).padStart(2, '0')}:00 WIB`,
-        roomName: r === rounds ? 'Main Stage Stream' : `Room Custom #${order}`,
-        status: 'scheduled',
-        winnerRegistrationId: null,
-        ...(r < rounds ? { nextWinnerMatchId: idOf(r + 1, Math.floor(i / 2)), nextWinnerSlot: (i % 2 === 0 ? 'A' : 'B') as 'A' | 'B' } : {}),
-        playerStats: [],
-      });
-      order++;
-    }
-  }
-  return autoAdvanceByes(matches);
+type Src = { t: 'team'; id: string } | { t: 'bye' } | { t: 'w'; n: string } | { t: 'l'; n: string };
+interface Node {
+  id: string;
+  stage: Match['stage'];
+  round: number;
+  pos: number;
+  a: Src;
+  b: Src;
 }
 
-function generateDoubleElimination(
-  tournament: Tournament,
-  regs: TournamentRegistration[]
-): Match[] {
-  // shortcut: bracket DE hanya 4 tim; upgrade ke generator generik bila butuh 8+ tim.
-  if (regs.length < 4) return [];
-  const padded: (TournamentRegistration | null)[] = [...regs.slice(0, 4)];
-  while (padded.length < 4) padded.push(null);
-
-  const prefix = `m-${tournament.id}`;
-  const ub1Id = `${prefix}-ub1`;
-  const ub2Id = `${prefix}-ub2`;
-  const ubfId = `${prefix}-ubf`;
-  const lb1Id = `${prefix}-lb1`;
-  const lbfId = `${prefix}-lbf`;
-  const gfId = `${prefix}-gf`;
-
-  const matches: Match[] = [
-    {
-      id: ub1Id,
-      tournamentId: tournament.id,
-      stage: 'upper',
-      roundNumber: 1,
-      roundName: 'Upper Semifinal 1',
-      matchOrder: 1,
-      teamARegistrationId: padded[0]?.id ?? null,
-      teamBRegistrationId: padded[3]?.id ?? null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: tournament.defaultBestOf,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '13:00 WIB',
-      roomName: 'Upper Room #1',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      nextWinnerMatchId: ubfId,
-      nextWinnerSlot: 'A',
-      nextLoserMatchId: lb1Id,
-      nextLoserSlot: 'A',
-      playerStats: [],
-    },
-    {
-      id: ub2Id,
-      tournamentId: tournament.id,
-      stage: 'upper',
-      roundNumber: 1,
-      roundName: 'Upper Semifinal 2',
-      matchOrder: 2,
-      teamARegistrationId: padded[1]?.id ?? null,
-      teamBRegistrationId: padded[2]?.id ?? null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: tournament.defaultBestOf,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '14:15 WIB',
-      roomName: 'Upper Room #2',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      nextWinnerMatchId: ubfId,
-      nextWinnerSlot: 'B',
-      nextLoserMatchId: lb1Id,
-      nextLoserSlot: 'B',
-      playerStats: [],
-    },
-    {
-      id: lb1Id,
-      tournamentId: tournament.id,
-      stage: 'lower',
-      roundNumber: 1,
-      roundName: 'Lower Bracket R1',
-      matchOrder: 3,
-      teamARegistrationId: null,
-      teamBRegistrationId: null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: tournament.defaultBestOf,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '15:30 WIB',
-      roomName: 'Lower Room #1',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      nextWinnerMatchId: lbfId,
-      nextWinnerSlot: 'B',
-      playerStats: [],
-    },
-    {
-      id: ubfId,
-      tournamentId: tournament.id,
-      stage: 'upper',
-      roundNumber: 2,
-      roundName: 'Upper Bracket Final',
-      matchOrder: 4,
-      teamARegistrationId: null,
-      teamBRegistrationId: null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: 3,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '17:00 WIB',
-      roomName: 'Main Stage UB',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      nextWinnerMatchId: gfId,
-      nextWinnerSlot: 'A',
-      nextLoserMatchId: lbfId,
-      nextLoserSlot: 'A',
-      playerStats: [],
-    },
-    {
-      id: lbfId,
-      tournamentId: tournament.id,
-      stage: 'lower',
-      roundNumber: 2,
-      roundName: 'Lower Bracket Final',
-      matchOrder: 5,
-      teamARegistrationId: null,
-      teamBRegistrationId: null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: 3,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '18:30 WIB',
-      roomName: 'Main Stage LB',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      nextWinnerMatchId: gfId,
-      nextWinnerSlot: 'B',
-      playerStats: [],
-    },
-    {
-      id: gfId,
-      tournamentId: tournament.id,
-      stage: 'grand_final',
-      roundNumber: 3,
-      roundName: 'Grand Final',
-      matchOrder: 6,
-      teamARegistrationId: null,
-      teamBRegistrationId: null,
-      scoreA: 0,
-      scoreB: 0,
-      bestOf: 5,
-      scheduledDate: tournament.matchDayDate,
-      scheduledTime: '20:30 WIB',
-      roomName: 'Grand Final Arena',
-      status: 'scheduled',
-      winnerRegistrationId: null,
-      playerStats: [],
-    },
-  ];
-
-  return autoAdvanceByes(matches);
-}
-
-function generateRoundRobin(
+function generateElimination(
   tournament: Tournament,
   regs: TournamentRegistration[],
-  isDouble: boolean
+  doubleElim: boolean
 ): Match[] {
-  const list: (TournamentRegistration | null)[] = [...regs];
-  if (list.length % 2 !== 0) {
-    list.push(null); // dummy for bye
+  const n = regs.length;
+  const k = Math.max(1, Math.ceil(Math.log2(n)));
+  const S = 2 ** k;
+  const prefix = `m-${tournament.id}`;
+  const slots: Src[] = seedSlots(S).map((idx) => (idx < n ? { t: 'team', id: regs[idx].id } : { t: 'bye' }));
+  const de = doubleElim && k >= 2;
+  const nodes: Node[] = [];
+  const wbId = (r: number, i: number) => `${prefix}-wb${r}m${i + 1}`;
+  const lbId = (r: number, i: number) => `${prefix}-lb${r}m${i + 1}`;
+  const wbCount = (r: number) => S / 2 ** r;
+  const lbCount = (r: number) => S / 2 ** (Math.floor((r + 1) / 2) + 1);
+  const finalStage: Match['stage'] = de ? 'upper' : 'grand_final';
+
+  const pushWB = (r: number) => {
+    for (let i = 0; i < wbCount(r); i++) {
+      nodes.push({
+        id: wbId(r, i),
+        stage: r === k ? finalStage : 'upper',
+        round: r,
+        pos: i,
+        a: r === 1 ? slots[2 * i] : { t: 'w', n: wbId(r - 1, 2 * i) },
+        b: r === 1 ? slots[2 * i + 1] : { t: 'w', n: wbId(r - 1, 2 * i + 1) },
+      });
+    }
+  };
+  const pushLB = (r: number) => {
+    for (let i = 0; i < lbCount(r); i++) {
+      let a: Src;
+      let b: Src;
+      if (r === 1) {
+        a = { t: 'l', n: wbId(1, 2 * i) };
+        b = { t: 'l', n: wbId(1, 2 * i + 1) };
+      } else if (r % 2 === 1) {
+        a = { t: 'w', n: lbId(r - 1, 2 * i) };
+        b = { t: 'w', n: lbId(r - 1, 2 * i + 1) };
+      } else {
+        // ronde genap: pemenang ronde sebelumnya vs yang baru kalah dari Upper (urutan dibalik agar tidak langsung bertemu ulang)
+        a = { t: 'w', n: lbId(r - 1, i) };
+        b = { t: 'l', n: wbId(r / 2 + 1, lbCount(r) - 1 - i) };
+      }
+      nodes.push({ id: lbId(r, i), stage: 'lower', round: r, pos: i, a, b });
+    }
+  };
+
+  if (de) {
+    for (let r = 1; r <= k; r++) {
+      pushWB(r);
+      if (r === 1) pushLB(1);
+      else {
+        pushLB(2 * r - 2);
+        if (2 * r - 1 <= 2 * k - 2) pushLB(2 * r - 1);
+      }
+    }
+    nodes.push({
+      id: `${prefix}-gf`,
+      stage: 'grand_final',
+      round: k + 1,
+      pos: 0,
+      a: { t: 'w', n: wbId(k, 0) },
+      b: { t: 'w', n: lbId(2 * k - 2, 0) },
+    });
+  } else {
+    for (let r = 1; r <= k; r++) pushWB(r);
+    if (tournament.thirdPlaceMatch && k >= 2) {
+      nodes.push({
+        id: `${prefix}-tp`,
+        stage: 'third_place',
+        round: k,
+        pos: 0,
+        a: { t: 'l', n: wbId(k - 1, 0) },
+        b: { t: 'l', n: wbId(k - 1, 1) },
+      });
+    }
   }
+
+  // Hapus laga yang lawannya bye: pemenangnya langsung maju, yang kalah juga "bye".
+  const info = new Map<string, { pass: boolean; ra: Src; rb: Src }>();
+  const resolve = (s: Src): Src => {
+    if (s.t === 'team' || s.t === 'bye') return s;
+    const x = info.get(s.n)!;
+    if (s.t === 'w') return x.pass ? (x.ra.t === 'bye' ? x.rb : x.ra) : s;
+    return x.pass ? { t: 'bye' } : s;
+  };
+  for (const nd of nodes) {
+    const ra = resolve(nd.a);
+    const rb = resolve(nd.b);
+    info.set(nd.id, { pass: ra.t === 'bye' || rb.t === 'bye', ra, rb });
+  }
+  const real = nodes.filter((nd) => !info.get(nd.id)!.pass);
+
+  const defBo = tournament.defaultBestOf;
+  const finalBo = (defBo >= 5 ? defBo : 5) as Match['bestOf'];
+  const semiBo = (defBo === 1 ? 3 : defBo) as Match['bestOf'];
+  const countIn = (stage: Match['stage'], round: number) => real.filter((x) => x.stage === stage && x.round === round).length;
+  const nameOf = (nd: Node): string => {
+    let base: string;
+    if (nd.stage === 'grand_final') base = de ? 'Grand Final' : 'Grand Final';
+    else if (nd.stage === 'third_place') base = 'Perebutan Juara 3';
+    else if (nd.stage === 'lower') {
+      base = nd.round === 2 * k - 2 ? 'Lower Final' : nd.round === 2 * k - 3 ? 'Lower Semifinal' : `Lower Ronde ${nd.round}`;
+    } else {
+      const fromEnd = k - nd.round;
+      const w = fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semifinal' : fromEnd === 2 ? 'Perempat Final' : `Babak ${S / 2 ** (nd.round - 1)} Besar`;
+      base = de ? `Upper ${w}` : w;
+    }
+    return countIn(nd.stage, nd.round) > 1 ? `${base} ${real.filter((x) => x.stage === nd.stage && x.round === nd.round && x.pos <= nd.pos).length}` : base;
+  };
+  const boOf = (nd: Node): Match['bestOf'] => {
+    if (nd.stage === 'grand_final') return finalBo;
+    if (nd.stage === 'third_place') return semiBo;
+    if (nd.stage === 'upper' && nd.round >= k - 1) return nd.round === k && !de ? finalBo : semiBo;
+    if (nd.stage === 'lower' && nd.round >= 2 * k - 3) return semiBo;
+    return defBo;
+  };
+
+  const out = new Map<string, Match>();
+  real.forEach((nd, idx) => {
+    const x = info.get(nd.id)!;
+    out.set(nd.id, {
+      id: nd.id,
+      tournamentId: tournament.id,
+      stage: nd.stage,
+      roundNumber: nd.round,
+      roundName: nameOf(nd),
+      matchOrder: idx + 1,
+      teamARegistrationId: x.ra.t === 'team' ? x.ra.id : null,
+      teamBRegistrationId: x.rb.t === 'team' ? x.rb.id : null,
+      scoreA: 0,
+      scoreB: 0,
+      bestOf: boOf(nd),
+      scheduledDate: tournament.matchDayDate,
+      scheduledTime: `${String(12 + (idx % 10)).padStart(2, '0')}:00 WIB`,
+      roomName: nd.stage === 'grand_final' ? 'Main Stage Stream' : `Room Custom #${idx + 1}`,
+      status: 'scheduled',
+      winnerRegistrationId: null,
+      pos: nd.pos,
+      playerStats: [],
+    });
+  });
+  // Penunjuk "pemenang/yang kalah menuju laga mana"
+  for (const nd of real) {
+    const x = info.get(nd.id)!;
+    (['a', 'b'] as const).forEach((key) => {
+      const src = key === 'a' ? x.ra : x.rb;
+      if (src.t !== 'w' && src.t !== 'l') return;
+      const from = out.get(src.n)!;
+      const slot = key === 'a' ? 'A' : 'B';
+      if (src.t === 'w') {
+        from.nextWinnerMatchId = nd.id;
+        from.nextWinnerSlot = slot;
+      } else {
+        from.nextLoserMatchId = nd.id;
+        from.nextLoserSlot = slot;
+      }
+    });
+  }
+  const list = Array.from(out.values());
+
+  // Double Elimination dengan Grand Final 2 laga: laga ke-2 hanya dimainkan bila juara Lower menang.
+  const gf1 = out.get(`${prefix}-gf`);
+  if (de && tournament.grandFinalReset && gf1) {
+    const gf2: Match = {
+      ...gf1,
+      id: `${prefix}-gf2`,
+      roundNumber: k + 2,
+      roundName: 'Grand Final (Reset)',
+      matchOrder: list.length + 1,
+      teamARegistrationId: null,
+      teamBRegistrationId: null,
+      nextWinnerMatchId: undefined,
+      nextWinnerSlot: undefined,
+      scheduledTime: `${String(12 + (list.length % 10)).padStart(2, '0')}:00 WIB`,
+      roomName: 'Main Stage Stream',
+      optional: true,
+      playerStats: [],
+    };
+    gf1.resetMatchId = gf2.id;
+    list.push(gf2);
+  }
+  return list;
+}
+
+function generateRoundRobin(tournament: Tournament, regs: TournamentRegistration[], cycles: number): Match[] {
+  const list: (TournamentRegistration | null)[] = [...regs];
+  if (list.length % 2 !== 0) list.push(null); // bye
   const numTeams = list.length;
   const baseRounds = numTeams - 1;
   const half = numTeams / 2;
-
   const matches: Match[] = [];
   let matchOrder = 1;
+  const circle = [...list];
 
-  const teamCircle = [...list];
-  // Liga tunggal: jumlah babak dibatasi totalRounds, tapi tak pernah melebihi n-1 (tanpa pasangan berulang).
-  const maxRoundsToGenerate = isDouble
-    ? baseRounds * 2
-    : Math.min(tournament.totalRounds || baseRounds, baseRounds);
-
-  for (let r = 0; r < maxRoundsToGenerate; r++) {
-    const isSecondLeg = r >= baseRounds;
+  for (let r = 0; r < baseRounds * cycles; r++) {
+    const leg = Math.floor(r / baseRounds);
+    const swap = leg % 2 === 1; // putaran genap: kandang/tandang ditukar
     const roundNumber = r + 1;
-
     for (let i = 0; i < half; i++) {
-      const first = teamCircle[i];
-      const second = teamCircle[numTeams - 1 - i];
-      if (first && second) {
-        const teamA = isSecondLeg ? second : first;
-        const teamB = isSecondLeg ? first : second;
-        const hour = 13 + ((matchOrder - 1) % 7);
-        matches.push({
-          id: `m-${tournament.id}-rr-r${roundNumber}-m${i + 1}`,
-          tournamentId: tournament.id,
-          stage: 'round_robin',
-          roundNumber,
-          roundName: `Babak ${roundNumber}${isDouble ? (isSecondLeg ? ' (Leg 2)' : ' (Leg 1)') : ''}`,
-          matchOrder,
-          teamARegistrationId: teamA.id,
-          teamBRegistrationId: teamB.id,
-          scoreA: 0,
-          scoreB: 0,
-          bestOf: tournament.defaultBestOf,
-          scheduledDate: tournament.matchDayDate,
-          scheduledTime: `${hour.toString().padStart(2, '0')}:00 WIB`,
-          roomName: `Lobby Liga #${(i % 3) + 1}`,
-          status: 'scheduled',
-          winnerRegistrationId: null,
-          playerStats: [],
-        });
-        matchOrder++;
-      }
+      const first = circle[i];
+      const second = circle[numTeams - 1 - i];
+      if (!first || !second) continue;
+      const hour = 13 + ((matchOrder - 1) % 7);
+      matches.push({
+        id: `m-${tournament.id}-rr-r${roundNumber}-m${i + 1}`,
+        tournamentId: tournament.id,
+        stage: 'round_robin',
+        roundNumber,
+        roundName: `Babak ${roundNumber}${cycles > 1 ? ` (Putaran ${leg + 1})` : ''}`,
+        matchOrder,
+        teamARegistrationId: (swap ? second : first).id,
+        teamBRegistrationId: (swap ? first : second).id,
+        scoreA: 0,
+        scoreB: 0,
+        bestOf: tournament.defaultBestOf,
+        scheduledDate: tournament.matchDayDate,
+        scheduledTime: `${hour.toString().padStart(2, '0')}:00 WIB`,
+        roomName: `Lobby Liga #${(i % 3) + 1}`,
+        status: 'scheduled',
+        winnerRegistrationId: null,
+        playerStats: [],
+      });
+      matchOrder++;
     }
-
-    // Rotate circle keeping index 0 fixed
-    const last = teamCircle.pop()!;
-    teamCircle.splice(1, 0, last);
+    const last = circle.pop()!;
+    circle.splice(1, 0, last); // putar, indeks 0 tetap
   }
-
   return matches;
 }
 
-function autoAdvanceByes(matches: Match[]): Match[] {
-  const copy = matches.map((m) => ({ ...m }));
-  copy.forEach((m) => {
-    if (m.roundNumber === 1 && m.teamARegistrationId && !m.teamBRegistrationId) {
-      m.status = 'completed';
-      m.scoreA = 1;
-      m.scoreB = 0;
-      m.winnerRegistrationId = m.teamARegistrationId;
-      if (m.nextWinnerMatchId) {
-        const nextM = copy.find((x) => x.id === m.nextWinnerMatchId);
-        if (nextM) {
-          if (m.nextWinnerSlot === 'A') nextM.teamARegistrationId = m.teamARegistrationId;
-          else nextM.teamBRegistrationId = m.teamARegistrationId;
-        }
-      }
-    }
-  });
-  return copy;
+/** Membuat seluruh laga turnamen dari tim terverifikasi (urutan seed dihormati). */
+export function generateTournamentMatches(
+  tournament: Tournament,
+  approvedRegistrations: TournamentRegistration[]
+): Match[] {
+  const regs = seedOrder(approvedRegistrations).slice(0, bracketCapacity(tournament.bracketFormat));
+  if (regs.length < 2) return [];
+  if (tournament.bracketFormat === 'single_elimination') return generateElimination(tournament, regs, false);
+  if (tournament.bracketFormat === 'double_elimination') return generateElimination(tournament, regs, true);
+  return generateRoundRobin(tournament, regs, roundRobinCycles(tournament));
 }
 
+const hasProgress = (m: Match) =>
+  m.status !== 'scheduled' || m.scoreA > 0 || m.scoreB > 0 || m.playerStats.length > 0;
+
+/** Apakah ada laga yang sudah berjalan (skor/status/statistik)? Setelah itu bracket "terkunci". */
+export const bracketStarted = (matches: Match[]) => matches.some(hasProgress);
+
 /**
- * Propagates winner and loser of an updated match to downstream Upper/Lower bracket matches.
+ * Menyimpan hasil satu laga lalu meneruskan pemenang (dan yang kalah, untuk Double Elimination/juara 3)
+ * ke laga berikutnya. Bila hasil diubah dan laga lanjutan sudah berisi hasil lama, laga itu direset
+ * (seperti Challonge: skor baru harus diisi untuk slot yang terbuka kembali).
  */
 export function propagateMatchOutcome(allMatches: Match[], updatedMatch: Match): Match[] {
-  const nextList = allMatches.map((m) => (m.id === updatedMatch.id ? { ...updatedMatch } : { ...m }));
+  const byId = new Map(allMatches.map((m) => [m.id, { ...m }]));
+  const outcome = (m: Match) =>
+    m.status === 'completed' && m.teamARegistrationId && m.teamBRegistrationId && m.scoreA !== m.scoreB
+      ? m.scoreA > m.scoreB
+        ? { winner: m.teamARegistrationId, loser: m.teamBRegistrationId }
+        : { winner: m.teamBRegistrationId, loser: m.teamARegistrationId }
+      : null;
 
-  if (
-    updatedMatch.status === 'completed' &&
-    updatedMatch.teamARegistrationId &&
-    updatedMatch.teamBRegistrationId &&
-    updatedMatch.scoreA !== updatedMatch.scoreB
-  ) {
-    const winnerId =
-      updatedMatch.scoreA > updatedMatch.scoreB
-        ? updatedMatch.teamARegistrationId
-        : updatedMatch.teamBRegistrationId;
-    const loserId =
-      updatedMatch.scoreA > updatedMatch.scoreB
-        ? updatedMatch.teamBRegistrationId
-        : updatedMatch.teamARegistrationId;
-
-    const targetCurrent = nextList.find((m) => m.id === updatedMatch.id);
-    if (targetCurrent) {
-      targetCurrent.winnerRegistrationId = winnerId;
+  const assign = (t: Match, key: 'teamARegistrationId' | 'teamBRegistrationId', value: string | null) => {
+    if (t[key] === value) return;
+    const had = hasProgress(t);
+    t[key] = value;
+    if (had) {
+      t.scoreA = 0;
+      t.scoreB = 0;
+      t.status = 'scheduled';
+      t.winnerRegistrationId = null;
+      t.playerStats = [];
     }
-
-    if (updatedMatch.nextWinnerMatchId) {
-      const winnerMatch = nextList.find((m) => m.id === updatedMatch.nextWinnerMatchId);
-      if (winnerMatch) {
-        if (updatedMatch.nextWinnerSlot === 'A') {
-          winnerMatch.teamARegistrationId = winnerId;
-        } else {
-          winnerMatch.teamBRegistrationId = winnerId;
-        }
-      }
-    }
-
-    if (updatedMatch.nextLoserMatchId) {
-      const loserMatch = nextList.find((m) => m.id === updatedMatch.nextLoserMatchId);
-      if (loserMatch) {
-        if (updatedMatch.nextLoserSlot === 'A') {
-          loserMatch.teamARegistrationId = loserId;
-        } else {
-          loserMatch.teamBRegistrationId = loserId;
-        }
-      }
+    push(t);
+  };
+  const slotKey = (s?: 'A' | 'B') => (s === 'A' ? 'teamARegistrationId' : 'teamBRegistrationId');
+  function push(m: Match) {
+    const o = outcome(m);
+    m.winnerRegistrationId = o ? o.winner : null;
+    const w = m.nextWinnerMatchId && byId.get(m.nextWinnerMatchId);
+    if (w) assign(w, slotKey(m.nextWinnerSlot), o ? o.winner : null);
+    const l = m.nextLoserMatchId && byId.get(m.nextLoserMatchId);
+    if (l) assign(l, slotKey(m.nextLoserSlot), o ? o.loser : null);
+    const g2 = m.resetMatchId && byId.get(m.resetMatchId);
+    if (g2) {
+      // juara Lower menang Grand Final -> bracket reset (laga ke-2); juara Upper menang -> tidak perlu
+      const need = !!o && o.winner === m.teamBRegistrationId;
+      g2.skipped = !!o && !need;
+      assign(g2, 'teamARegistrationId', need ? m.teamARegistrationId : null);
+      assign(g2, 'teamBRegistrationId', need ? m.teamBRegistrationId : null);
     }
   }
 
-  return nextList;
+  const target = { ...updatedMatch };
+  byId.set(target.id, target);
+  push(target);
+  return allMatches.map((m) => byId.get(m.id)!);
+}
+
+/** Juara turnamen (id pendaftaran) bila sudah ditentukan. */
+export function getChampion(
+  tournament: Tournament,
+  matches: Match[],
+  registrations: TournamentRegistration[]
+): string | null {
+  if (matches.length === 0) return null;
+  if (tournament.bracketFormat.includes('round_robin')) {
+    return matches.every((m) => m.status === 'completed')
+      ? calculateStandings(registrations, matches)[0]?.registrationId ?? null
+      : null;
+  }
+  const finals = matches.filter((m) => m.stage === 'grand_final').sort((a, b) => a.matchOrder - b.matchOrder);
+  const g1 = finals[0];
+  if (!g1 || g1.status !== 'completed' || !g1.winnerRegistrationId) return null;
+  const g2 = finals.find((m) => m.optional);
+  if (!g2 || g1.winnerRegistrationId === g1.teamARegistrationId) return g1.winnerRegistrationId;
+  return g2.status === 'completed' ? g2.winnerRegistrationId : null;
 }
 
 export function calculateStandings(

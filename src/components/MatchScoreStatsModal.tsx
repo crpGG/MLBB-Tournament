@@ -35,6 +35,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
   const [scheduledTime, setScheduledTime] = useState<string>('13:00 WIB');
   const [roomName, setRoomName] = useState<string>('');
   const [playerStats, setPlayerStats] = useState<PlayerMatchStat[]>([]);
+  const [error, setError] = useState('');
 
   const regA = registrations.find((r) => r.id === match?.teamARegistrationId);
   const regB = registrations.find((r) => r.id === match?.teamBRegistrationId);
@@ -42,6 +43,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
   useEffect(() => {
     if (!match) return;
     setScoreA(match.scoreA);
+    setError('');
     setScoreB(match.scoreB);
     setStatus(match.status);
     setScheduledDate(match.scheduledDate);
@@ -197,6 +199,16 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (status === 'completed' && match.stage !== 'round_robin') {
+      const need = Math.ceil(match.bestOf / 2);
+      const hi = Math.max(Number(scoreA), Number(scoreB));
+      const lo = Math.min(Number(scoreA), Number(scoreB));
+      if (hi !== need || lo >= need) {
+        setError(`Laga BO${match.bestOf} gugur tidak boleh seri: pemenang harus meraih tepat ${need} game dan lawan kurang dari ${need}.`);
+        return;
+      }
+    }
+    setError('');
     const winnerId =
       status === 'completed' && scoreA !== scoreB
         ? scoreA > scoreB
@@ -622,6 +634,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
           </div>
 
           {/* Modal Footer */}
+          {error && <p className="text-xs text-rose-400">{error}</p>}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
             <button
               type="button"
