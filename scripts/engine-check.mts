@@ -9,6 +9,7 @@ import {
   propagateMatchOutcome,
   seedOrder,
 } from '../src/utils/bracketEngine.ts';
+import { getPodium } from '../src/utils/posterSvg.ts';
 import { INITIAL_TOURNAMENTS } from '../src/data/initialData.ts';
 import { registrationState, shiftDate, todayLocal } from '../src/utils/tournamentStatus.ts';
 import type { Match, Tournament, TournamentRegistration } from '../src/types/tournament.ts';
@@ -181,4 +182,14 @@ assert.equal(registrationState({ ...t0, registrationCloseDate: shiftDate(todayLo
 assert.equal(registrationState({ ...t0, registrationCloseDate: todayLocal() }), 'open', 'hari penutupan masih dibuka');
 assert.equal(registrationState({ ...t0, registrationCloseDate: shiftDate(todayLocal(), -1) }), 'closed');
 assert.equal(registrationState({ ...t0, status: 'completed', registrationCloseDate: shiftDate(todayLocal(), 9) }), 'done');
+// ---------- Podium poster: tiga peringkat berbeda dan terisi untuk SE+juara 3, DE, dan liga
+for (const [fmt, extra] of [['single_elimination', { thirdPlaceMatch: true }], ['double_elimination', {}], ['single_round_robin', {}]] as const) {
+  const t = T(fmt, extra);
+  const rs = regs(6);
+  const ms = play(generateTournamentMatches(t, rs));
+  const pod = getPodium(t, ms, rs);
+  assert.ok(pod.every(Boolean) && new Set(pod).size === 3, `${fmt}: podium lengkap dan unik`);
+  assert.equal(pod[0], getChampion(t, ms, rs), `${fmt}: juara = podium[0]`);
+}
+
 console.log('engine-check OK');
