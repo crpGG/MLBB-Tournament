@@ -1,17 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Eye, EyeOff, KeyRound, Loader2, User } from 'lucide-react';
 import { StaffProfile, authErrorMessage, cloudEnabled, loginWithUsername } from '../cloud';
 import { BrandMark } from './AppSidebar';
-import { shuffledWallpapers } from '../utils/wallpaper';
+import { sessionWallpaper } from '../utils/wallpaper';
 
 interface Props {
   onStaffLogin: (profile: StaffProfile) => void;
   onVisitor: () => void;
 }
 
-const HOLD_MS = 9000;
-
-/** Login sederhana: username, password, atau masuk sebagai pengunjung. Latar berganti acak. */
+/** Login sederhana: username, password, atau masuk sebagai pengunjung. Latar satu wallpaper per sesi. */
 export const MLBBLaylaLoginPage: React.FC<Props> = ({ onStaffLogin, onVisitor }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -19,34 +17,7 @@ export const MLBBLaylaLoginPage: React.FC<Props> = ({ onStaffLogin, onVisitor })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Dua lapisan gambar bergantian untuk transisi pudar.
-  const [layers, setLayers] = useState<[string, string]>(['', '']);
-  const [active, setActive] = useState(0);
-  const order = useRef<string[]>([]);
-  const pos = useRef(0);
-  const last = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    const next = () => {
-      if (pos.current >= order.current.length) {
-        order.current = shuffledWallpapers(last.current);
-        pos.current = 0;
-      }
-      const src = order.current[pos.current++];
-      last.current = src;
-      setActive((a) => {
-        const n = 1 - a;
-        setLayers((l) => (n === 0 ? [src, l[1]] : [l[0], src]));
-        return n;
-      });
-      // Muat gambar berikutnya lebih dulu agar tidak berkedip.
-      const peek = order.current[pos.current];
-      if (peek) new Image().src = peek;
-    };
-    next();
-    const t = setInterval(next, HOLD_MS);
-    return () => clearInterval(t);
-  }, []);
+  const wallpaper = useState(sessionWallpaper)[0]; // satu wallpaper per sesi, sama dengan latar aplikasi
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,16 +37,7 @@ export const MLBBLaylaLoginPage: React.FC<Props> = ({ onStaffLogin, onVisitor })
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#070D19] text-slate-100 flex items-center justify-center lg:justify-end px-4 py-8 lg:pr-[6%]">
-      {layers.map((src, i) =>
-        src ? (
-          <div
-            key={i}
-            aria-hidden="true"
-            className={`login-bg absolute inset-0 bg-cover bg-center ${active === i ? 'on' : ''}`}
-            style={{ backgroundImage: `url(${src})`, ['--hold' as string]: `${(HOLD_MS * 1.4) / 1000}s` }}
-          />
-        ) : null
-      )}
+      <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${wallpaper})` }} />
       <div className="absolute inset-0 bg-gradient-to-r from-[#050A16]/70 via-[#050A16]/35 to-[#050A16]/60" aria-hidden="true" />
 
       <form onSubmit={submit} className="glass-bar relative z-10 w-full max-w-[380px] rounded-[20px] p-6 space-y-3.5">
