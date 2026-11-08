@@ -1,5 +1,4 @@
 import React from 'react';
-import { MessageCircle } from 'lucide-react';
 
 export type MainTab =
   | 'dashboard'
@@ -31,15 +30,15 @@ interface Props {
   active: MainTab;
   onSelect: (t: MainTab) => void;
   isStaff: boolean;
-  contactUrl: string;
+  saweriaUrl: string; // kosong = tombol disembunyikan
   bestOf: number;
 }
 
 /** Sidebar tetap di desktop; di mobile: bar atas (logo + WhatsApp) dan tab bawah yang bisa digeser. */
-export const AppSidebar: React.FC<Props> = ({ items, active, onSelect, isStaff, contactUrl, bestOf }) => (
+export const AppSidebar: React.FC<Props> = ({ items, active, onSelect, isStaff, saweriaUrl, bestOf }) => (
   <>
     {/* Desktop */}
-    <aside className="hidden lg:flex flex-col gap-5 w-72 shrink-0 sticky top-0 h-screen overflow-y-auto px-3 py-6 bg-[#0A1224] border-r border-[#1B2744]">
+    <aside className="hidden lg:flex flex-col gap-5 w-72 shrink-0 sticky top-0 h-screen overflow-y-auto px-3 py-6 glass-bar border-r border-[#1B2744]">
       <div className="px-2 pb-4 border-b border-[#1B2744] space-y-3">
         <BrandMark />
         <div>
@@ -76,19 +75,18 @@ export const AppSidebar: React.FC<Props> = ({ items, active, onSelect, isStaff, 
 
       <div className="flex-1" />
 
-      {contactUrl && (
+      {saweriaUrl && (
         <a
-          href={contactUrl}
+          href={saweriaUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 rounded-xl bg-green-600 hover:bg-green-500 px-4 py-3 text-[15px] font-bold text-white"
+          className="flex items-center justify-center gap-2 rounded-xl bg-[#FA8231] hover:bg-[#ff9248] px-4 py-2.5 text-sm font-extrabold text-[#1a0c00] transition-colors"
         >
-          <MessageCircle className="w-[18px] h-[18px]" aria-hidden="true" />
-          Hubungi Panitia
+          <span aria-hidden="true">♥</span> Dukung via Saweria
         </a>
       )}
 
-      <section aria-label="Aturan poin resmi" className="rounded-2xl border border-[#1B2744] bg-[#0E1830] p-4 space-y-3">
+      <section aria-label="Aturan poin resmi" className="rounded-2xl border border-white/10 bg-black/30 p-4 space-y-3">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-bold tracking-wider text-amber-400">ATURAN POIN RESMI</span>
           <button type="button" onClick={() => onSelect('bracket')} className="text-xs font-semibold text-amber-300 hover:text-amber-200 cursor-pointer">
@@ -105,7 +103,7 @@ export const AppSidebar: React.FC<Props> = ({ items, active, onSelect, isStaff, 
     </aside>
 
     {/* Mobile: bar atas */}
-    <div className="lg:hidden flex items-center justify-between gap-3 px-4 py-3 bg-[#0A1224] border-b border-[#1B2744]">
+    <div className="lg:hidden flex items-center justify-between gap-3 px-4 py-3 glass-bar border-0 border-b border-white/10">
       <div className="flex items-center gap-2.5 min-w-0">
         <BrandMark size={34} />
         <div className="min-w-0">
@@ -113,21 +111,10 @@ export const AppSidebar: React.FC<Props> = ({ items, active, onSelect, isStaff, 
           <div className="text-[10px] font-bold tracking-[0.1em] text-amber-400">{isStaff ? 'PANEL STAF · MLBB' : 'LIVE VIEW · MLBB'}</div>
         </div>
       </div>
-      {contactUrl && (
-        <a
-          href={contactUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Hubungi panitia lewat WhatsApp"
-          className="w-11 h-11 shrink-0 rounded-xl bg-green-600 flex items-center justify-center"
-        >
-          <MessageCircle className="w-5 h-5 text-white" aria-hidden="true" />
-        </a>
-      )}
     </div>
 
     {/* Mobile: tab bawah */}
-    <nav aria-label="Menu bawah" className="lg:hidden fixed bottom-0 inset-x-0 z-40 flex overflow-x-auto bg-[#0A1224]/95 backdrop-blur border-t border-[#1B2744]">
+    <nav aria-label="Menu bawah" className="lg:hidden fixed bottom-0 inset-x-0 z-40 flex overflow-x-auto glass-bar border-0 border-t border-white/10">
       {items.map((it) => (
         <button
           key={it.id}
