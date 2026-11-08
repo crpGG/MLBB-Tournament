@@ -595,3 +595,13 @@ export function aggregatePlayerLeaderboard(
     return b.kdaRatio - a.kdaRatio;
   });
 }
+
+/** Asal slot kosong: kunci `${matchId}:A|B` -> "Pemenang M5" / "Kalah M3" (nomor = matchOrder). */
+export function slotSources(matches: Match[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of matches) {
+    if (m.nextWinnerMatchId && m.nextWinnerSlot) out.set(`${m.nextWinnerMatchId}:${m.nextWinnerSlot}`, `Pemenang M${m.matchOrder}`);
+    if (m.nextLoserMatchId && m.nextLoserSlot) out.set(`${m.nextLoserMatchId}:${m.nextLoserSlot}`, `Kalah M${m.matchOrder}`);
+  }
+  return out;
+}

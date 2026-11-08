@@ -8,6 +8,7 @@ import {
   getDisplayTeamName,
   roundRobinCycles,
   seedOrder,
+  slotSources,
 } from '../utils/bracketEngine';
 import { Calendar, Crown, Edit3, Eye, Info, RefreshCw, Trophy } from 'lucide-react';
 
@@ -58,70 +59,68 @@ export const BracketAndStandingsView: React.FC<Props> = ({
   const status = started ? (championId ? 'Selesai' : 'Berlangsung') : approved.length < 2 ? 'Menunggu peserta' : 'Belum mulai';
   const cycles = roundRobinCycles(tournament);
 
+  const seedOf = new Map(seedOrder(approved).map((r, i) => [r.id, i + 1]));
+  const sources = slotSources(matches);
+
   const card = (m: Match) => {
-    const a = findReg(m.teamARegistrationId);
-    const b = findReg(m.teamBRegistrationId);
     const complete = m.status === 'completed';
-    const aWon = complete && !!a && m.winnerRegistrationId === a.id;
-    const bWon = complete && !!b && m.winnerRegistrationId === b.id;
-    const row = (reg: TournamentRegistration | undefined, score: number, won: boolean, last: boolean) => (
-      <div className={`px-3 py-2 flex items-center justify-between ${last ? '' : 'border-b border-slate-800/60'} ${won ? 'bg-emerald-500/10' : ''}`}>
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] font-mono font-bold text-amber-400 w-9 truncate shrink-0">{reg ? reg.teamTag : '—'}</span>
-          <span className={`text-xs truncate ${won ? 'font-bold text-slate-100' : reg ? 'text-slate-300' : 'text-slate-500 italic'}`}>
-            {reg ? getDisplayTeamName(reg, registrations) : 'Menunggu pemenang'}
+    const row = (slot: 'A' | 'B') => {
+      const reg = findReg(slot === 'A' ? m.teamARegistrationId : m.teamBRegistrationId);
+      const score = slot === 'A' ? m.scoreA : m.scoreB;
+      const won = complete && !!reg && m.winnerRegistrationId === reg.id;
+      const lost = complete && !!reg && !won;
+      const ph = !reg ? sources.get(`${m.id}:${slot}`) || '—' : '';
+      return (
+        <div className={`flex h-6 text-[12.5px] ${slot === 'B' ? 'border-t border-white/10' : ''} ${won ? 'font-semibold' : ''}`}>
+          <i className="w-[22px] shrink-0 grid place-items-center not-italic text-[11px] font-semibold bg-white/5 text-slate-400 border-r border-white/10">{reg ? seedOf.get(reg.id) ?? '' : ''}</i>
+          <span className={`flex-1 min-w-0 px-2 flex items-center truncate ${reg ? (lost ? 'text-slate-400' : 'text-slate-100') : 'text-slate-500 italic text-[11.5px]'}`}>
+            {reg ? getDisplayTeamName(reg, registrations) : ph}
           </span>
+          <i className={`w-6 shrink-0 grid place-items-center not-italic text-[13px] font-bold ${won ? 'bg-emerald-400 text-slate-950' : 'bg-white/5 text-slate-400'}`}>{complete || m.status === 'live' ? score : ''}</i>
         </div>
-        <span className={`text-sm font-mono font-bold ml-2 ${won ? 'text-emerald-400' : 'text-slate-300'}`}>{reg || complete ? score : ''}</span>
-      </div>
-    );
+      );
+    };
     return (
       <div
         key={m.id}
         onClick={() => onSelectMatch(m)}
-        className={`glass-card hover:border-amber-400/60 rounded-xl transition-all cursor-pointer overflow-hidden w-60 shrink-0 ${m.skipped ? 'opacity-40' : ''}`}
+        title={`${m.roundName} · BO${m.bestOf} · ${m.scheduledTime}${canManage ? ' · klik untuk mengisi skor' : ' · klik untuk detail'}`}
+        className={`w-[190px] shrink-0 overflow-hidden rounded border bg-[#0F1A33] cursor-pointer transition-colors hover:border-amber-400 ${m.status === 'live' ? 'border-rose-400 ring-1 ring-rose-400' : 'border-white/15'} ${m.skipped ? 'opacity-40' : ''}`}
       >
-        <div className="px-3 py-1.5 bg-[#091122]/85 border-b border-white/10 flex items-center justify-between text-[10px] text-slate-300 font-mono">
-          <span>M#{m.matchOrder} · BO{m.bestOf}{m.optional ? ' · cadangan' : ''}</span>
-          {m.status === 'live' ? <span className="text-amber-400 font-bold">LIVE</span> : complete ? <span className="text-emerald-400">SELESAI</span> : m.skipped ? <span>TIDAK DIPERLUKAN</span> : <span>{m.scheduledTime}</span>}
-        </div>
-        {row(a, m.scoreA, aWon, false)}
-        {row(b, m.scoreB, bWon, true)}
-        <div className="px-3 py-1 bg-[#0B0F17]/60 border-t border-slate-800/60 flex items-center justify-end text-[10px] text-amber-400 font-medium gap-1">
-          {canManage ? <><Edit3 className="w-3 h-3" /> Skor & Stats</> : <><Eye className="w-3 h-3" /> Detail ({m.playerStats.length})</>}
-        </div>
+        {row('A')}
+        {row('B')}
       </div>
     );
   };
 
-  /** Satu kolom per ronde; justify-around menjaga laga tiap ronde sejajar di tengah dua laga sumbernya. */
+  /** Satu kolom per ronde; tiap laga di tengah sel yang sama tinggi, konektor "]" menyambung dua laga ke satu laga berikutnya. */
   const tree = (title: string, list: Match[], tone = 'text-amber-300') => {
     if (list.length === 0) return null;
     const rounds = Array.from(new Set(list.map((m) => m.roundNumber))).sort((x, y) => x - y);
+    const height = Math.max(...rounds.map((rn) => list.filter((m) => m.roundNumber === rn).length)) * 64;
     return (
-      <div className="p-5 glass-panel rounded-xl space-y-4">
-        <h3 className={`text-sm font-bold flex items-center gap-2 ${tone}`}>{title}</h3>
+      <div className="p-4 sm:p-5 glass-panel rounded-xl space-y-3">
+        <h3 className={`text-sm font-bold ${tone}`}>{title}</h3>
         <div className="overflow-x-auto pb-2">
-          <div className="flex gap-8 min-w-max items-stretch">
+          <div className="flex gap-9 min-w-max pl-6">
             {rounds.map((rn, ri) => {
               const ms = list.filter((m) => m.roundNumber === rn).sort((x, y) => (x.pos ?? x.matchOrder) - (y.pos ?? y.matchOrder));
               const nextCount = list.filter((m) => m.roundNumber === rounds[ri + 1]).length;
               const hasNext = ri < rounds.length - 1;
-              const pairs = hasNext && ms.length === nextCount * 2; // dua laga bergabung ke satu laga ronde berikutnya
+              const prevCount = ri > 0 ? list.filter((m) => m.roundNumber === rounds[ri - 1]).length : 0;
+              const pairs = hasNext && ms.length === nextCount * 2;
+              const straight = hasNext && ms.length === nextCount;
               return (
                 <div key={rn} className="flex flex-col">
-                  <div className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-3">{ms[0].roundName}</div>
-                  <div className="flex flex-col flex-1">
+                  <div className="h-5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">{ms[0].roundName}</div>
+                  <div className="flex flex-col" style={{ height }}>
                     {ms.map((m, i) => (
-                      <div key={m.id} className="relative flex items-center flex-1 py-2">
+                      <div key={m.id} className="relative flex flex-1 items-center py-1.5 w-[190px]">
                         {card(m)}
-                        {hasNext && <span className="absolute left-full top-1/2 w-4 border-t border-slate-600" />}
-                        {ri > 0 && <span className="absolute right-full top-1/2 w-4 border-t border-slate-600" />}
-                        {pairs && (
-                          <span
-                            className={`absolute left-[calc(100%+1rem)] border-l border-slate-600 ${i % 2 === 0 ? 'top-1/2 bottom-0' : 'top-0 bottom-1/2'}`}
-                          />
-                        )}
+                        <span className="absolute right-full top-[calc(50%-14px)] w-[18px] text-center text-[10px] font-semibold text-slate-400">{m.matchOrder}</span>
+                        {ri > 0 && (prevCount === ms.length * 2 || prevCount === ms.length) && <span className="absolute right-full top-1/2 w-[18px] border-t border-slate-500" />}
+                        {straight && <span className="absolute left-full top-1/2 w-9 border-t border-slate-500" />}
+                        {pairs && i % 2 === 0 && <span className="absolute left-full top-1/2 h-full w-[18px] border border-l-0 border-slate-500" />}
                       </div>
                     ))}
                   </div>
@@ -135,6 +134,11 @@ export const BracketAndStandingsView: React.FC<Props> = ({
   };
 
   const by = (stage: Match['stage']) => matches.filter((m) => m.stage === stage);
+  /** Grand Final jadi kolom terakhir pohon (satu kolom per laga) supaya tersambung ke laga sebelumnya. */
+  const withFinals = (list: Match[]) => {
+    const top = Math.max(0, ...list.map((m) => m.roundNumber));
+    return [...list, ...by('grand_final').sort((x, y) => x.matchOrder - y.matchOrder).map((m, i) => ({ ...m, roundNumber: top + 1 + i }))];
+  };
   const rrRounds = Array.from(new Set(matches.map((m) => m.roundNumber))).sort((x, y) => x - y);
   const standings = calculateStandings(registrations, matches);
   const seedList = seedOrder(approved);
@@ -266,9 +270,8 @@ export const BracketAndStandingsView: React.FC<Props> = ({
 
       {!isRR && matches.length > 0 && (
         <div className="space-y-6">
-          {tree(isDE ? 'Upper Bracket' : 'Bagan Single Elimination', by('upper'))}
-          {isDE && tree('Lower Bracket', by('lower'), 'text-rose-300')}
-          {tree('Grand Final', by('grand_final'))}
+          {tree(isDE ? 'Upper Bracket' : 'Bagan Single Elimination', isDE ? by('upper') : withFinals(by('upper')))}
+          {isDE && tree('Lower Bracket dan Grand Final', withFinals(by('lower')), 'text-rose-300')}
           {tree('Perebutan Juara 3', by('third_place'), 'text-slate-200')}
         </div>
       )}
