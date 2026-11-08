@@ -103,12 +103,28 @@ export const BracketAndStandingsView: React.FC<Props> = ({
         <h3 className={`text-sm font-bold flex items-center gap-2 ${tone}`}>{title}</h3>
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-8 min-w-max items-stretch">
-            {rounds.map((rn) => {
+            {rounds.map((rn, ri) => {
               const ms = list.filter((m) => m.roundNumber === rn).sort((x, y) => (x.pos ?? x.matchOrder) - (y.pos ?? y.matchOrder));
+              const nextCount = list.filter((m) => m.roundNumber === rounds[ri + 1]).length;
+              const hasNext = ri < rounds.length - 1;
+              const pairs = hasNext && ms.length === nextCount * 2; // dua laga bergabung ke satu laga ronde berikutnya
               return (
                 <div key={rn} className="flex flex-col">
                   <div className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-3">{ms[0].roundName}</div>
-                  <div className="flex flex-col justify-around gap-4 flex-1">{ms.map(card)}</div>
+                  <div className="flex flex-col flex-1">
+                    {ms.map((m, i) => (
+                      <div key={m.id} className="relative flex items-center flex-1 py-2">
+                        {card(m)}
+                        {hasNext && <span className="absolute left-full top-1/2 w-4 border-t border-slate-600" />}
+                        {ri > 0 && <span className="absolute right-full top-1/2 w-4 border-t border-slate-600" />}
+                        {pairs && (
+                          <span
+                            className={`absolute left-[calc(100%+1rem)] border-l border-slate-600 ${i % 2 === 0 ? 'top-1/2 bottom-0' : 'top-0 bottom-1/2'}`}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })}
