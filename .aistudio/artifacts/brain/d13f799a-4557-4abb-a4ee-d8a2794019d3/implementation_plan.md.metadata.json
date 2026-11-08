@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana peningkatan Login Page Mobile Legends (Layla) menjadi portal interaktif 2.5D/3D dengan efek 3D Tilt Hologram mengikuti mouse, animasi karakter Layla bernapas & gelombang energi, partikel kristal & jejak kilat kursor, bingkai energi emas berputar, lencana Mythic Glory berkilau, ticker pengumuman turnamen aktif, serta susunan Portal Heroik Pengunjung di atas dan Login Panitia di bawah.",
-  "updatedAt": "2026-11-05T04:02:34.331274391Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Rencana implementasi lengkap untuk 5 poin revisi portal turnamen ArenaDawn MLBB: pembatasan menu pengunjung, pembaruan fitur Bagikan & Hubungi Panitia bergaya portal esports, tampilan kartu turnamen berposter 2:3 dengan fitur lightbox di Daftar Turnamen & Dashboard Utama, serta kartu pemilih turnamen interaktif di Live Bracket & Klasemen.",
+  "updatedAt":  "2026-11-08T15:34:20.865041160Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

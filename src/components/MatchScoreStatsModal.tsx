@@ -7,7 +7,7 @@ import {
   TournamentRegistration,
 } from '../types/tournament';
 import { MLBB_HEROES } from '../utils/bracketEngine';
-import { Award, Check, Sparkles, Trophy, X } from 'lucide-react';
+import { Award, Check, X } from 'lucide-react';
 
 interface MatchScoreStatsModalProps {
   isOpen: boolean;
@@ -18,6 +18,24 @@ interface MatchScoreStatsModalProps {
   canEdit: boolean; // true for admin & panitia, false for pengunjung
   onSaveMatch: (updatedMatch: Match) => void;
 }
+
+const calculateAutoRating = (
+  kills: number,
+  deaths: number,
+  assists: number,
+  gold: number,
+  isWinnerTeam: boolean
+): number => {
+  const k = Math.max(0, Number(kills) || 0);
+  const d = Math.max(0, Number(deaths) || 0);
+  const a = Math.max(0, Number(assists) || 0);
+  const g = Math.max(0, Number(gold) || 0);
+  const kdaScore = k * 0.35 + a * 0.18 - d * 0.28;
+  const goldBonus = Math.min(1.2, Math.max(0, (g - 8000) / 8000));
+  const winBonus = isWinnerTeam ? 0.8 : 0;
+  const raw = 6.0 + kdaScore + goldBonus + winBonus;
+  return Number(Math.min(10.0, Math.max(3.0, raw)).toFixed(1));
+};
 
 export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
   isOpen,
@@ -40,6 +58,12 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
   const regA = registrations.find((r) => r.id === match?.teamARegistrationId);
   const regB = registrations.find((r) => r.id === match?.teamBRegistrationId);
 
+  const isTeamWinning = (teamRegId: string, curScoreA: number, curScoreB: number): boolean => {
+    if (curScoreA === curScoreB) return false;
+    if (curScoreA > curScoreB) return teamRegId === regA?.id;
+    return teamRegId === regB?.id;
+  };
+
   useEffect(() => {
     if (!match) return;
     setScoreA(match.scoreA);
@@ -51,7 +75,18 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
     setRoomName(match.roomName || '');
 
     if (match.playerStats && match.playerStats.length > 0) {
-      setPlayerStats(match.playerStats);
+      setPlayerStats(
+        match.playerStats.map((row) => ({
+          ...row,
+          rating: calculateAutoRating(
+            row.kills,
+            row.deaths,
+            row.assists,
+            row.gold,
+            isTeamWinning(row.teamRegistrationId, match.scoreA, match.scoreB)
+          ),
+        }))
+      );
     } else {
       // Build default 10-player stat rows from Team A and Team B core rosters
       const initialRows: PlayerMatchStat[] = [];
@@ -59,6 +94,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
       const defaultHeroesB = ['Suyou', 'Zhuxin', 'Karrie', 'Terizla', 'Minotaur'];
 
       if (regA) {
+        const winA = isTeamWinning(regA.id, match.scoreA, match.scoreB);
         regA.corePlayerIds.forEach((pid, idx) => {
           const p = players.find((x) => x.id === pid);
           initialRows.push({
@@ -72,13 +108,14 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
             deaths: 0,
             assists: 0,
             gold: 10500,
-            rating: 7.5,
+            rating: calculateAutoRating(0, 0, 0, 10500, winA),
             isMvp: false,
           });
         });
       }
 
       if (regB) {
+        const winB = isTeamWinning(regB.id, match.scoreA, match.scoreB);
         regB.corePlayerIds.forEach((pid, idx) => {
           const p = players.find((x) => x.id === pid);
           initialRows.push({
@@ -92,7 +129,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
             deaths: 0,
             assists: 0,
             gold: 10200,
-            rating: 7.2,
+            rating: calculateAutoRating(0, 0, 0, 10200, winB),
             isMvp: false,
           });
         });
@@ -103,6 +140,26 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
   }, [match, regA?.id, regB?.id]);
 
   if (!isOpen || !match) return null;
+
+  const handleScoreChange = (side: 'A' | 'B', nextVal: number) => {
+    const nextA = side === 'A' ? nextVal : scoreA;
+    const nextB = side === 'B' ? nextVal : scoreB;
+    if (side === 'A') setScoreA(nextVal);
+    else setScoreB(nextVal);
+
+    setPlayerStats((prev) =>
+      prev.map((row) => ({
+        ...row,
+        rating: calculateAutoRating(
+          row.kills,
+          row.deaths,
+          row.assists,
+          row.gold,
+          isTeamWinning(row.teamRegistrationId, nextA, nextB)
+        ),
+      }))
+    );
+  };
 
   const handleUpdateStat = (
     playerId: string,
@@ -116,7 +173,17 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
           return { ...row, isMvp: row.playerId === playerId };
         }
         if (row.playerId !== playerId) return row;
-        return { ...row, [field]: value };
+        const updated = { ...row, [field]: value };
+        if (field === 'kills' || field === 'deaths' || field === 'assists' || field === 'gold') {
+          updated.rating = calculateAutoRating(
+            updated.kills,
+            updated.deaths,
+            updated.assists,
+            updated.gold,
+            isTeamWinning(updated.teamRegistrationId, scoreA, scoreB)
+          );
+        }
+        return updated;
       })
     );
   };
@@ -143,58 +210,6 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
           : row
       )
     );
-  };
-
-  const handleAutoGenerateRealisticStats = () => {
-    const aWins = scoreA >= scoreB;
-    setPlayerStats((prev) => {
-      let highestRatingIdx = 0;
-      let highestRatingVal = 0;
-
-      const generated = prev.map((row, index) => {
-        const isWinnerTeam =
-          (aWins && row.teamRegistrationId === regA?.id) ||
-          (!aWins && row.teamRegistrationId === regB?.id);
-        const kills = isWinnerTeam
-          ? Math.floor(Math.random() * 8) + 3
-          : Math.floor(Math.random() * 5) + 1;
-        const deaths = isWinnerTeam
-          ? Math.floor(Math.random() * 3) + 1
-          : Math.floor(Math.random() * 5) + 3;
-        const assists = isWinnerTeam
-          ? Math.floor(Math.random() * 10) + 5
-          : Math.floor(Math.random() * 6) + 2;
-        const gold = isWinnerTeam
-          ? 11500 + Math.floor(Math.random() * 4500)
-          : 8900 + Math.floor(Math.random() * 3500);
-        const rawRating = Math.min(
-          10,
-          Math.max(
-            5.2,
-            6.5 + (kills * 0.35 + assists * 0.15 - deaths * 0.25) + (isWinnerTeam ? 1.1 : 0)
-          )
-        );
-        const rating = Number(rawRating.toFixed(1));
-        if (isWinnerTeam && rating > highestRatingVal) {
-          highestRatingVal = rating;
-          highestRatingIdx = index;
-        }
-        return {
-          ...row,
-          kills,
-          deaths,
-          assists,
-          gold,
-          rating,
-          isMvp: false,
-        };
-      });
-
-      if (generated[highestRatingIdx]) {
-        generated[highestRatingIdx].isMvp = true;
-      }
-      return generated;
-    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -266,7 +281,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                 <th className="py-2 px-2 text-right font-mono">Death</th>
                 <th className="py-2 px-2 text-right font-mono">Assist</th>
                 <th className="py-2 px-3 text-right font-mono">Gold</th>
-                <th className="py-2 px-3 text-right font-mono">Rating</th>
+                <th className="py-2 px-3 text-right font-mono">Rating (Auto)</th>
                 <th className="py-2 px-3 text-center">MVP</th>
               </tr>
             </thead>
@@ -407,21 +422,12 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                     )}
                   </td>
                   <td className="py-2 px-3 text-right font-mono">
-                    {canEdit ? (
-                      <input
-                        type="number"
-                        step={0.1}
-                        min={1}
-                        max={10}
-                        value={row.rating}
-                        onChange={(e) =>
-                          handleUpdateStat(row.playerId, 'rating', Number(e.target.value))
-                        }
-                        className="w-16 px-2 py-1 bg-[#111827] border border-slate-700 rounded text-right font-mono text-slate-100"
-                      />
-                    ) : (
-                      <span className="font-bold text-slate-100">{row.rating}</span>
-                    )}
+                    <span
+                      title="Dihitung otomatis dari KDA, Gold & hasil laga"
+                      className="inline-block w-16 px-2 py-1 bg-[#111827]/70 border border-slate-800 rounded text-right font-mono font-bold text-amber-400 select-none"
+                    >
+                      {row.rating.toFixed(1)}
+                    </span>
                   </td>
                   <td className="py-2 px-3 text-center">
                     {canEdit ? (
@@ -499,7 +505,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                     min={0}
                     max={4}
                     value={scoreA}
-                    onChange={(e) => setScoreA(Number(e.target.value))}
+                    onChange={(e) => handleScoreChange('A', Number(e.target.value))}
                     className="w-16 h-14 text-center text-2xl font-mono font-bold bg-[#111827] border border-slate-700 rounded-xl text-amber-400"
                   />
                 ) : (
@@ -547,7 +553,7 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                     min={0}
                     max={4}
                     value={scoreB}
-                    onChange={(e) => setScoreB(Number(e.target.value))}
+                    onChange={(e) => handleScoreChange('B', Number(e.target.value))}
                     className="w-16 h-14 text-center text-2xl font-mono font-bold bg-[#111827] border border-slate-700 rounded-xl text-amber-400"
                   />
                 ) : (
@@ -565,45 +571,6 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                 </div>
               </div>
             </div>
-
-            {canEdit && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-4 border-t border-slate-800">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    Tanggal Pertandingan
-                  </label>
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-[#111827] border border-slate-700 rounded text-xs font-mono text-slate-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    Jam Pertandingan
-                  </label>
-                  <input
-                    type="text"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-[#111827] border border-slate-700 rounded text-xs font-mono text-slate-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    ID Room / Nama Lobby Stream
-                  </label>
-                  <input
-                    type="text"
-                    value={roomName}
-                    onChange={(e) => setRoomName(e.target.value)}
-                    placeholder="Contoh: Room Custom #1"
-                    className="w-full px-3 py-1.5 bg-[#111827] border border-slate-700 rounded text-xs text-slate-100"
-                  />
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Individual Player Match Stats Section */}
@@ -617,16 +584,6 @@ export const MatchScoreStatsModal: React.FC<MatchScoreStatsModalProps> = ({
                   Data yang diinput di sini otomatis terakumulasi ke Leaderboard Statistik Pemain Turnamen
                 </p>
               </div>
-              {canEdit && regA && regB && (
-                <button
-                  type="button"
-                  onClick={handleAutoGenerateRealisticStats}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Isi Cepat Statistik Simulasi Hasil Laga
-                </button>
-              )}
             </div>
 
             {renderTeamStatsTable(regA, 'Tim A')}

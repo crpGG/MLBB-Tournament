@@ -20,6 +20,7 @@ import {
 import {
   StaffProfile,
   cloudEnabled,
+  deleteRegistration,
   deleteSubmission,
   logout,
   onSession,
@@ -39,6 +40,11 @@ import {
   generateTournamentMatches,
   propagateMatchOutcome,
 } from './utils/bracketEngine';
+import {
+  generate50DummyTeamsAndPlayers,
+  isDummyPlayer,
+  isDummyTeam,
+} from './utils/dummyGenerator';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { sessionWallpaper } from './utils/wallpaper';
 import { MLBBLaylaLoginPage } from './components/MLBBLaylaLoginPage';
@@ -57,14 +63,24 @@ import { TeamPlayerRegistrationView } from './components/TeamPlayerRegistrationV
 import { AppSidebar, MainTab, NavItem } from './components/AppSidebar';
 import { DashboardView } from './components/DashboardView';
 import {
+  BracketTournamentSelectorCards,
+  PosterLightboxModal,
+  ShareTournamentModal,
+  TournamentPosterCard,
+  buildCommitteeWhatsAppUrl,
+  getTournamentPosterUrl,
+} from './components/TournamentPortalWidgets';
+import {
   CheckCircle2,
   CreditCard,
   Edit3,
-  Trash2,
   ExternalLink,
   KeyRound,
   LogOut,
+  Maximize2,
+  MessageCircle,
   Plus,
+  Share2,
   Swords,
   UserCheck,
   UserPlus,
@@ -149,6 +165,10 @@ export default function App() {
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedMatchForModal, setSelectedMatchForModal] =
     useState<Match | null>(null);
+  const [shareModalTournament, setShareModalTournament] =
+    useState<Tournament | null>(null);
+  const [lightboxPosterTournament, setLightboxPosterTournament] =
+    useState<Tournament | null>(null);
   const [toastNotification, setToastNotification] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -292,7 +312,13 @@ export default function App() {
   // Pengunjung hanya melihat tab publik; staf non-admin tidak punya tab Manajemen User.
   useEffect(() => {
     if (activeTab === 'users' && !isAdmin) setActiveTab('bracket');
-  }, [activeTab, isAdmin]);
+    if (
+      !staff &&
+      (activeTab === 'database' || activeTab === 'poster' || activeTab === 'registrations')
+    ) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, isAdmin, staff]);
 
   const activeTournament = useMemo(
     () =>
@@ -325,16 +351,9 @@ export default function App() {
     setScreenStage('login');
   };
 
-  // Bracket baru menghapus hasil laga; minta konfirmasi bila sudah ada skor/statistik.
-  const confirmDiscardResults = () => {
-    const started = activeMatches.some(
-      (m) => m.status !== 'scheduled' || m.playerStats.length > 0 || m.scoreA > 0 || m.scoreB > 0
-    );
-    return (
-      !started ||
-      window.confirm('Sudah ada hasil laga. Menyusun ulang bracket akan MENGHAPUS semua skor dan statistik turnamen ini. Lanjutkan?')
-    );
-  };
+  // Di dalam iframe preview, window.confirm diblokir browser dan selalu mengembalikan false.
+  // Oleh karena itu aksi penyusunan ulang bracket langsung dijalankan dengan notifikasi toast.
+  const confirmDiscardResults = () => true;
 
   // Handlers for Tournament Create / Edit
   const handleSaveTournament = (
@@ -400,7 +419,6 @@ export default function App() {
   };
 
   const handleDeleteTournament = (trn: Tournament) => {
-    if (!window.confirm(`Hapus turnamen "${trn.name}" beserta bracket dan hasil lajunya? Tindakan ini tidak bisa dibatalkan.`)) return;
     setTournaments((prev) => prev.filter((t) => t.id !== trn.id));
     setMatches((prev) => prev.filter((m) => m.tournamentId !== trn.id));
     setRegistrations((prev) => prev.filter((r) => r.tournamentId !== trn.id));
@@ -410,15 +428,131 @@ export default function App() {
 
   const handleRegenerateCurrentBracket = () => {
     if (!activeTournament || !confirmDiscardResults()) return;
-    const approved = activeRegistrations.filter((r) => r.status === 'approved');
-    const generated = generateTournamentMatches(activeTournament, approved);
+    const cap = bracketCapacity(activeTournament.bracketFormat);
+    const verifierName = `${sessionName} (${isAdmin ? 'Admin' : 'Panitia'})`;
+    const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const hadStarted = activeMatches.some(
+      (m) => m.status !== 'scheduled' || m.playerStats.length > 0 || m.scoreA > 0 || m.scoreB > 0
+    );
+
+    // 1. Setujui pendaftaran pending yang ada di turnamen aktif
+    const pendingCountInTourney = activeRegistrations.filter((r) => r.status === 'pending').length;
+    let nextRegs = registrations.map((r) =>
+      r.tournamentId === activeTournament.id && r.status === 'pending'
+        ? { ...r, status: 'approved' as const, verifiedBy: verifierName, verifiedAt: nowStr }
+        : r
+    );
+
+    // 2. Masukkan tim dari Database Master yang belum terdaftar ke turnamen aktif (hingga kapasitas format bracket)
+    const existingForTourney = nextRegs.filter(
+      (r) => r.tournamentId === activeTournament.id && r.status === 'approved'
+    );
+    const registeredTeamIds = new Set(existingForTourney.map((r) => r.teamId));
+    const slotsLeft = Math.max(0, cap - existingForTourney.length);
+    const unregisteredTeams = teams
+      .filter((t) => !registeredTeamIds.has(t.id))
+      .slice(0, slotsLeft);
+
+    const autoAddedRegs: TournamentRegistration[] = unregisteredTeams.map((t, idx) => {
+      const teamPlayers = players.filter((p) => p.teamId === t.id || t.memberPlayerIds.includes(p.id));
+      const coreIds = teamPlayers.slice(0, 5).map((p) => p.id);
+      const subIds = teamPlayers.slice(5, 7).map((p) => p.id);
+      return {
+        id: `reg-auto-${activeTournament.id}-${t.id}-${Date.now()}-${idx}`,
+        tournamentId: activeTournament.id,
+        teamId: t.id,
+        teamName: t.name,
+        teamTag: t.tag,
+        slotIndex: 1,
+        captainName: t.captainName || 'Kapten Tim',
+        whatsapp: t.whatsapp || '',
+        corePlayerIds: coreIds,
+        subPlayerIds: subIds,
+        feeTypeSnapshot: activeTournament.feeType,
+        requirementSubmissions: [],
+        status: 'approved',
+        verifiedBy: verifierName,
+        verifiedAt: nowStr,
+        registeredAt: `${nowStr}:${String(idx).padStart(2, '0')}`,
+      };
+    });
+
+    if (autoAddedRegs.length > 0) {
+      nextRegs = [...nextRegs, ...autoAddedRegs];
+    }
+
+    let approvedForTourney = nextRegs.filter(
+      (r) => r.tournamentId === activeTournament.id && r.status === 'approved'
+    );
+
+    // 3. Bila laga belum dimulai dan tidak ada tim baru yang ditambahkan, acak ulang urutan pasangan (re-draw)
+    const addedAnyTeam = pendingCountInTourney > 0 || autoAddedRegs.length > 0;
+    if (!hadStarted && !addedAnyTeam && approvedForTourney.length >= 2) {
+      const shuffled = [...approvedForTourney];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const seedMap = new Map(shuffled.map((r, idx) => [r.id, idx + 1]));
+      nextRegs = nextRegs.map((r) =>
+        seedMap.has(r.id) ? { ...r, seed: seedMap.get(r.id) } : r
+      );
+      approvedForTourney = nextRegs.filter(
+        (r) => r.tournamentId === activeTournament.id && r.status === 'approved'
+      );
+    }
+
+    setRegistrations(nextRegs);
+
+    const updatedTournament: Tournament =
+      approvedForTourney.length > activeTournament.maxTeams
+        ? { ...activeTournament, maxTeams: Math.min(cap, Math.max(activeTournament.maxTeams, approvedForTourney.length)) }
+        : activeTournament;
+
+    if (updatedTournament !== activeTournament) {
+      setTournaments((prev) =>
+        prev.map((t) => (t.id === updatedTournament.id ? updatedTournament : t))
+      );
+    }
+
+    const generated = generateTournamentMatches(updatedTournament, approvedForTourney);
     setMatches((prev) => [
-      ...prev.filter((m) => m.tournamentId !== activeTournament.id),
+      ...prev.filter((m) => m.tournamentId !== updatedTournament.id),
       ...generated,
     ]);
     showToast(
-      `Bracket & jadwal "${activeTournament.name}" berhasil disusun ulang (${approved.length} tim).`
+      `Bracket & jadwal "${updatedTournament.name}" berhasil disusun ulang (${Math.min(approvedForTourney.length, cap)} tim, ${generated.length} laga).`
     );
+  };
+
+  const dummyTeamCount = useMemo(() => teams.filter(isDummyTeam).length, [teams]);
+
+  const handleGenerateDummyTeams = () => {
+    const { newTeams, newPlayers } = generate50DummyTeamsAndPlayers(teams, players);
+    setTeams((prev) => [...newTeams, ...prev]);
+    setPlayers((prev) => [...newPlayers, ...prev]);
+    showToast(
+      `Berhasil membuat ${newTeams.length} tim dummy beserta ${newPlayers.length} pemain ke Database Master.`
+    );
+  };
+
+  const handleClearDummyTeams = () => {
+    const removedTeams = teams.filter(isDummyTeam).length;
+    setTeams((prev) => prev.filter((t) => !isDummyTeam(t)));
+    setPlayers((prev) => prev.filter((p) => !isDummyPlayer(p)));
+    const nextRegs = registrations.filter((r) => !r.teamId.startsWith('tm-dummy-'));
+    setRegistrations(nextRegs);
+    if (activeTournament) {
+      const remainingApproved = nextRegs.filter(
+        (r) => r.tournamentId === activeTournament.id && r.status === 'approved'
+      );
+      const regenerated = generateTournamentMatches(activeTournament, remainingApproved);
+      setMatches((prev) => [
+        ...prev.filter((m) => m.tournamentId !== activeTournament.id),
+        ...regenerated,
+      ]);
+    }
+    showToast(`Berhasil menghapus ${removedTeams} tim dummy beserta pemainnya dari Database Master.`);
   };
 
   // Handler for Team Registration
@@ -452,7 +586,9 @@ export default function App() {
     }
     setRegistrations((prev) => [newReg, ...prev]);
     setIsRegistrationModalOpen(false);
-    setActiveTab('registrations');
+    if (staff) {
+      setActiveTab('registrations');
+    }
     showToast(
       `Tim [${newReg.teamTag}] ${newReg.teamName} berhasil didaftarkan dan menunggu verifikasi panitia.`
     );
@@ -523,6 +659,34 @@ export default function App() {
     showToast('Pendaftaran tim ditolak.');
   };
 
+  const handleDeleteRegistration = (regId: string) => {
+    const target = registrations.find((r) => r.id === regId);
+    if (!target) return;
+    if (cloudEnabled) {
+      regRemote.current.delete(regId);
+      deleteRegistration(regId).catch(() => {
+        showToast('Gagal menghapus pendaftaran tim dari server.');
+      });
+    }
+    const nextRegs = registrations.filter((r) => r.id !== regId);
+    setRegistrations(nextRegs);
+
+    const trn = tournaments.find((t) => t.id === target.tournamentId);
+    if (trn) {
+      const remainingApproved = nextRegs.filter(
+        (r) => r.tournamentId === trn.id && r.status === 'approved'
+      );
+      const regenerated = generateTournamentMatches(trn, remainingApproved);
+      setMatches((prev) => [
+        ...prev.filter((m) => m.tournamentId !== trn.id),
+        ...regenerated,
+      ]);
+    }
+    showToast(
+      `Tim [${target.teamTag}] ${target.teamName} dihapus dari turnamen & bracket diperbarui.`
+    );
+  };
+
   // Handler for Saving Match Score & Player Stats
   const handleSaveMatch = (updatedMatch: Match) => {
     const next = propagateMatchOutcome(matches, updatedMatch);
@@ -574,7 +738,7 @@ export default function App() {
   };
 
   const handleRejectSubmission = async (sub: DbSubmission) => {
-    if (window.confirm('Tolak dan hapus pendaftaran ini?') && (await removeSubmission(sub))) showToast('Pendaftaran ditolak.');
+    if (await removeSubmission(sub)) showToast('Pendaftaran ditolak.');
   };
 
   const pendingRegistrationsCount = activeRegistrations.filter(
@@ -634,26 +798,31 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard Utama' },
     { id: 'bracket', label: 'Live Bracket & Klasemen' },
     { id: 'tournaments', label: 'Daftar Turnamen' },
-    { id: 'registrations', label: staff ? 'Verifikasi Pendaftaran' : 'Peserta Turnamen', badge: staff ? pendingRegistrationsCount : undefined },
+    ...(staff
+      ? [
+          {
+            id: 'registrations' as MainTab,
+            label: 'Verifikasi Pendaftaran',
+            badge: pendingRegistrationsCount,
+          },
+        ]
+      : []),
     { id: 'stats', label: 'Statistik Pemain' },
-    { id: 'poster', label: 'Poster Turnamen' },
-    { id: 'register', label: 'Daftar Tim & Player', badge: staff ? submissions.length : undefined },
-    { id: 'database', label: 'Database Tim & Player' },
+    ...(staff ? [{ id: 'poster' as MainTab, label: 'Poster Turnamen' }] : []),
+    {
+      id: 'register',
+      label: 'Daftar Tim & Player',
+      badge: staff ? submissions.length : undefined,
+    },
+    ...(staff ? [{ id: 'database' as MainTab, label: 'Database Tim & Player' }] : []),
     ...(isAdmin ? [{ id: 'users' as MainTab, label: 'Manajemen User' }] : []),
   ];
   const pageTitle = (navItems.find((i) => i.id === activeTab)?.label || '').toUpperCase();
-  const contactUrl = waLink(activeTournament?.contactWhatsapp);
+  const contactUrl = buildCommitteeWhatsAppUrl(activeTournament);
   const safeSaweria = normalizeSaweria(saweriaUrl ?? DEFAULT_SAWERIA_URL);
 
-  const handleShare = async () => {
-    const url = window.location.href.split('#')[0];
-    try {
-      if (navigator.share) return void (await navigator.share({ title: activeTournament?.name || 'ArenaDawn MLBB', url }));
-      await navigator.clipboard.writeText(url);
-      showToast('Tautan disalin.');
-    } catch {
-      /* dibatalkan pengguna */
-    }
+  const handleShare = (trn?: Tournament) => {
+    setShareModalTournament(trn || activeTournament || null);
   };
 
   // STAGE 3: DASHBOARD ALA PUBGM-CRP (sidebar + konten)
@@ -736,7 +905,20 @@ export default function App() {
           </div>
         </header>
 
-        {(activeTab === 'bracket' || activeTab === 'registrations' || activeTab === 'stats') && activeTournament && (
+        {activeTab === 'bracket' && activeTournament && (
+          <div className="space-y-3">
+            <BracketTournamentSelectorCards
+              tournaments={tournaments}
+              selectedTournamentId={activeTournament.id}
+              registrations={registrations}
+              onSelectTournament={setSelectedTournamentId}
+              onViewPoster={(trn) => setLightboxPosterTournament(trn)}
+            />
+            {capacityWarning}
+          </div>
+        )}
+
+        {(activeTab === 'registrations' || activeTab === 'stats') && activeTournament && (
           <div className="space-y-3">
             <label className="flex flex-wrap items-center gap-3">
               <span className="text-xs font-bold tracking-[0.08em] text-slate-400">TURNAMEN</span>
@@ -768,20 +950,27 @@ export default function App() {
                 tournaments={tournaments}
                 tournament={activeTournament}
                 registrations={activeRegistrations}
+                allRegistrations={registrations}
                 matches={activeMatches}
                 players={players}
                 isStaff={Boolean(staff)}
+                isAdmin={isAdmin}
+                dummyTeamCount={dummyTeamCount}
+                onGenerateDummyTeams={handleGenerateDummyTeams}
+                onClearDummyTeams={handleClearDummyTeams}
                 pendingCount={pendingRegistrationsCount}
                 queueCount={submissions.length}
                 contactUrl={contactUrl}
                 onSelectTournament={setSelectedTournamentId}
                 onRegister={() => setIsRegistrationModalOpen(true)}
-                onShare={handleShare}
+                onShare={(trn) => handleShare(trn)}
+                onViewPoster={(trn) => setLightboxPosterTournament(trn)}
                 onGo={setActiveTab}
-                onEdit={() => {
-                  setEditingTournament(activeTournament);
+                onEdit={(trn) => {
+                  setEditingTournament(trn || activeTournament);
                   setIsTournamentModalOpen(true);
                 }}
+                onDeleteTournament={handleDeleteTournament}
                 onNew={() => {
                   setEditingTournament(null);
                   setIsTournamentModalOpen(true);
@@ -793,16 +982,16 @@ export default function App() {
 
             {activeTab === 'tournaments' && (
               <div className="space-y-6">
-        {/* Esports Portal Tournament Showcase Selector Cards */}
-        <section className="space-y-3">
+        {/* Esports Portal Tournament Showcase Selector Cards with 2:3 Posters */}
+        <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-bold uppercase tracking-wider text-amber-300 flex items-center gap-2">
                 <Swords className="w-4 h-4 text-amber-400" />
-                Daftar Turnamen Aktif ({tournaments.length} Event)
+                Daftar Turnamen & Poster Resmi ({tournaments.length} Event)
               </h2>
               <p className="text-xs text-slate-300">
-                Pilih turnamen di bawah untuk melihat bagan bracket, jadwal laga, pendaftar, dan statistik pemain
+                Klik poster untuk memperbesar (rasio 2:3), pilih kartu turnamen untuk melihat detail, bagikan undangan, atau daftarkan tim Anda
               </p>
             </div>
 
@@ -834,73 +1023,37 @@ export default function App() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {tournaments.map((trn) => {
               const isSelected = trn.id === activeTournament?.id;
               const trnRegs = registrations.filter(
                 (r) => r.tournamentId === trn.id && r.status === 'approved'
               );
               return (
-                <div
+                <TournamentPosterCard
                   key={trn.id}
-                  onClick={() => setSelectedTournamentId(trn.id)}
-                  className={`p-4 rounded-xl transition-all cursor-pointer flex flex-col justify-between gap-3 ${
-                    isSelected
-                      ? 'glass-panel border-2 border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.2)]'
-                      : 'glass-card hover:border-white/25 opacity-85 hover:opacity-100'
-                  }`}
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-mono text-amber-300">
-                      <span>{trn.venueType}</span>
-                      <span>
-                        {trnRegs.length}/{trn.maxTeams} Slot Terverifikasi
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-white leading-snug">
-                      {trn.name}
-                    </h3>
-                    <p className="text-xs text-slate-300">
-                      {trn.seriesSystem}
-                    </p>
-                  </div>
-
-                  {canManageTournament && (
-                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedTournamentId(trn.id);
-                          setEditingTournament(trn);
-                          setIsTournamentModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium glass-card hover:border-amber-400/50 text-slate-100 rounded-lg cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-amber-400" /> Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTournament(trn)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium glass-card hover:border-rose-400/60 text-rose-300 rounded-lg cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Hapus
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs font-mono">
-                    <span className="text-slate-300">
-                      Match: {formatIndonesianDate(trn.matchDayDate)}
-                    </span>
-                    <span className="font-bold text-amber-400">
-                      {trn.feeType === 'paid'
-                        ? `Rp ${trn.feeAmount.toLocaleString('id-ID')}`
-                        : trn.feeType === 'conditional_free'
-                        ? 'Gratis Bersyarat'
-                        : 'Gratis'}
-                    </span>
-                  </div>
-                </div>
+                  tournament={trn}
+                  approvedCount={trnRegs.length}
+                  isSelected={isSelected}
+                  isStaff={canManageTournament}
+                  onSelect={() => setSelectedTournamentId(trn.id)}
+                  onViewPoster={() => setLightboxPosterTournament(trn)}
+                  onRegister={() => {
+                    setSelectedTournamentId(trn.id);
+                    setIsRegistrationModalOpen(true);
+                  }}
+                  onViewBracket={() => {
+                    setSelectedTournamentId(trn.id);
+                    setActiveTab('bracket');
+                  }}
+                  onShare={() => handleShare(trn)}
+                  onEdit={() => {
+                    setSelectedTournamentId(trn.id);
+                    setEditingTournament(trn);
+                    setIsTournamentModalOpen(true);
+                  }}
+                  onDelete={() => handleDeleteTournament(trn)}
+                />
               );
             })}
           </div>
@@ -919,52 +1072,72 @@ export default function App() {
 
         {capacityWarning}
 
-        {/* Active Tournament Specification Banner (Following Zero-Pill Metadata Discipline & Glassy Surface) */}
+        {/* Active Tournament Specification Banner */}
         {activeTournament && (
           <section className="p-6 glass-panel rounded-2xl space-y-5">
-            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-              <div className="space-y-2 max-w-3xl">
-                {/* Unboxed inline kicker metadata */}
-                <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300 font-medium">
-                  <span>{activeTournament.organizer}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Venue: {activeTournament.venueType}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Hadiah: {activeTournament.prizePool}</span>
-                </div>
-
-                <h1
-                  className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-display"
-                  style={{ textWrap: 'balance' }}
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+              <div className="flex flex-col sm:flex-row items-start gap-5 max-w-3xl">
+                <button
+                  type="button"
+                  onClick={() => setLightboxPosterTournament(activeTournament)}
+                  className="group relative w-32 sm:w-36 aspect-[2/3] rounded-xl overflow-hidden border border-white/15 bg-[#060C18] shrink-0 cursor-pointer shadow-lg"
+                  title="Klik untuk memperbesar poster turnamen"
                 >
-                  {activeTournament.name}
-                </h1>
+                  <img
+                    src={getTournamentPosterUrl(activeTournament)}
+                    alt={`Poster ${activeTournament.name}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <span className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="px-2 py-1 rounded-md bg-slate-900/90 border border-amber-400/50 text-[10px] font-bold text-amber-300 inline-flex items-center gap-1">
+                      <Maximize2 className="w-3 h-3" /> Perbesar
+                    </span>
+                  </span>
+                </button>
 
-                <p className="text-sm text-slate-200 leading-relaxed">
-                  {activeTournament.description}
-                </p>
+                <div className="space-y-2">
+                  {/* Unboxed inline kicker metadata */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300 font-medium">
+                    <span>{activeTournament.organizer}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>Venue: {activeTournament.venueType}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>Hadiah: {activeTournament.prizePool}</span>
+                  </div>
 
-                {/* Clean unboxed MLBB Regulation Metadata */}
-                <div className="pt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-300">
-                  <strong className="text-white">
-                    {activeTournament.multiSlot}
-                  </strong>
-                  <span aria-hidden="true">·</span>
-                  <strong className="text-white">
-                    {activeTournament.skinRule}
-                  </strong>
-                  <span aria-hidden="true">·</span>
-                  <strong className="text-white">
-                    {activeTournament.tierRule}
-                  </strong>
-                  <span aria-hidden="true">·</span>
-                  <strong className="text-white">
-                    {activeTournament.gameMode}
-                  </strong>
-                  <span aria-hidden="true">·</span>
-                  <strong className="text-amber-300">
-                    {activeTournament.seriesSystem}
-                  </strong>
+                  <h1
+                    className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-display"
+                    style={{ textWrap: 'balance' }}
+                  >
+                    {activeTournament.name}
+                  </h1>
+
+                  <p className="text-sm text-slate-200 leading-relaxed">
+                    {activeTournament.description}
+                  </p>
+
+                  {/* Clean unboxed MLBB Regulation Metadata */}
+                  <div className="pt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-300">
+                    <strong className="text-white">
+                      {activeTournament.multiSlot}
+                    </strong>
+                    <span aria-hidden="true">·</span>
+                    <strong className="text-white">
+                      {activeTournament.skinRule}
+                    </strong>
+                    <span aria-hidden="true">·</span>
+                    <strong className="text-white">
+                      {activeTournament.tierRule}
+                    </strong>
+                    <span aria-hidden="true">·</span>
+                    <strong className="text-white">
+                      {activeTournament.gameMode}
+                    </strong>
+                    <span aria-hidden="true">·</span>
+                    <strong className="text-amber-300">
+                      {activeTournament.seriesSystem}
+                    </strong>
+                  </div>
                 </div>
               </div>
 
@@ -978,6 +1151,25 @@ export default function App() {
                   <UserPlus className="w-4 h-4" />
                   Daftarkan Tim ke Turnamen Ini
                 </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={contactUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/35 text-xs font-bold rounded-xl transition-colors"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Hubungi Panitia
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleShare(activeTournament)}
+                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[#111C36] hover:bg-[#162445] text-slate-200 border border-[#24304D] text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                    Bagikan
+                  </button>
+                </div>
                 {canManageTournament && pendingRegistrationsCount > 0 && (
                   <button
                     type="button"
@@ -1137,6 +1329,10 @@ export default function App() {
                 teams={teams}
                 players={players}
                 canManage={canManageTournament}
+                isAdmin={isAdmin}
+                dummyTeamCount={dummyTeamCount}
+                onGenerateDummyTeams={handleGenerateDummyTeams}
+                onClearDummyTeams={handleClearDummyTeams}
                 onAddPlayer={(newP) => {
                   setPlayers((prev) => [newP, ...prev]);
                   if (newP.teamId) {
@@ -1223,6 +1419,8 @@ export default function App() {
         }}
         onSave={handleSaveTournament}
         editingTournament={editingTournament}
+        registrations={registrations}
+        onDeleteRegistration={handleDeleteRegistration}
       />
 
       {activeTournament && (
@@ -1245,6 +1443,22 @@ export default function App() {
         players={players}
         canEdit={canManageTournament}
         onSaveMatch={handleSaveMatch}
+      />
+
+      <PosterLightboxModal
+        tournament={lightboxPosterTournament}
+        onClose={() => setLightboxPosterTournament(null)}
+        onShareTournament={(trn) => {
+          setLightboxPosterTournament(null);
+          setShareModalTournament(trn);
+        }}
+        onSelectTournament={(id) => setSelectedTournamentId(id)}
+      />
+
+      <ShareTournamentModal
+        tournament={shareModalTournament}
+        onClose={() => setShareModalTournament(null)}
+        onCopied={(msg) => showToast(msg)}
       />
     </div>
   );

@@ -1,26 +1,38 @@
 import React, { useMemo } from 'react';
-import { AlertTriangle, ImageIcon, MessageCircle } from 'lucide-react';
+import { AlertTriangle, Maximize2, MessageCircle, Plus, Share2, Sparkles, Swords, Trash2 } from 'lucide-react';
 import { Match, Player, Tournament, TournamentRegistration } from '../types/tournament';
 import { aggregatePlayerLeaderboard, calculateStandings } from '../utils/bracketEngine';
 import { defaultAvatar } from './DatabaseCards';
 import { MainTab } from './AppSidebar';
 import { REG_LABEL, registrationState } from '../utils/tournamentStatus';
+import {
+  buildCommitteeWhatsAppUrl,
+  getTournamentPosterUrl,
+  TournamentPosterCard,
+} from './TournamentPortalWidgets';
 
 interface Props {
   tournaments: Tournament[];
   tournament?: Tournament;
   registrations: TournamentRegistration[]; // milik turnamen aktif
+  allRegistrations?: TournamentRegistration[]; // semua pendaftaran untuk menghitung slot tiap kartu turnamen
   matches: Match[]; // milik turnamen aktif
   players: Player[];
   isStaff: boolean;
+  isAdmin?: boolean;
+  dummyTeamCount?: number;
+  onGenerateDummyTeams?: () => void;
+  onClearDummyTeams?: () => void;
   pendingCount: number;
   queueCount: number;
   contactUrl: string;
   onSelectTournament: (id: string) => void;
   onRegister: () => void;
-  onShare: () => void;
+  onShare: (trn?: Tournament) => void;
+  onViewPoster?: (trn: Tournament) => void;
   onGo: (tab: MainTab) => void;
-  onEdit: () => void;
+  onEdit: (trn?: Tournament) => void;
+  onDeleteTournament?: (trn: Tournament) => void;
   onNew: () => void;
   onRegenerate: () => void;
   onInputScore: (m: Match) => void;
@@ -28,7 +40,7 @@ interface Props {
 
 const card = 'rounded-[18px] border border-[#24304D] bg-[#0E1830]';
 const label = 'text-xs font-bold tracking-[0.08em] text-slate-400';
-const btnGhost = 'min-h-[44px] px-5 rounded-xl border border-[#24304D] bg-[#111C36] text-sm font-semibold text-slate-100 hover:border-amber-400/50 cursor-pointer';
+const btnGhost = 'min-h-[44px] px-5 rounded-xl border border-[#24304D] bg-[#111C36] text-sm font-semibold text-slate-100 hover:border-amber-400/50 cursor-pointer inline-flex items-center justify-center gap-2';
 const btnGold = 'min-h-[48px] rounded-xl bg-gradient-to-b from-amber-400 to-amber-600 text-[#0B1325] font-extrabold text-[15px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed';
 
 const longDate = (iso: string) =>
@@ -40,10 +52,33 @@ const feeText = (t: Tournament) =>
   t.feeType === 'paid' ? `Rp ${t.feeAmount.toLocaleString('id-ID')} / slot` : t.feeType === 'conditional_free' ? 'Gratis Bersyarat' : 'Gratis';
 
 export const DashboardView: React.FC<Props> = ({
-  tournaments, tournament: t, registrations, matches, players, isStaff, pendingCount, queueCount, contactUrl,
-  onSelectTournament, onRegister, onShare, onGo, onEdit, onNew, onRegenerate, onInputScore,
+  tournaments,
+  tournament: t,
+  registrations,
+  allRegistrations,
+  matches,
+  players,
+  isStaff,
+  isAdmin = false,
+  dummyTeamCount = 0,
+  onGenerateDummyTeams,
+  onClearDummyTeams,
+  pendingCount,
+  queueCount,
+  contactUrl,
+  onSelectTournament,
+  onRegister,
+  onShare,
+  onViewPoster,
+  onGo,
+  onEdit,
+  onDeleteTournament,
+  onNew,
+  onRegenerate,
+  onInputScore,
 }) => {
   const approved = registrations.filter((r) => r.status === 'approved');
+  const regsSource = allRegistrations || registrations;
   const tagOf = (id: string | null) => registrations.find((r) => r.id === id)?.teamTag || 'TBD';
 
   const standings = useMemo(() => calculateStandings(registrations, matches).slice(0, 3), [registrations, matches]);
@@ -56,15 +91,54 @@ export const DashboardView: React.FC<Props> = ({
     return [...live, ...(next ? [next] : []), ...done].slice(0, 4);
   }, [matches, isStaff]);
 
+  const adminDummySection = isAdmin ? (
+    <section
+      aria-label="Generator data dummy admin"
+      className="rounded-[18px] border border-[#24304D] bg-[#0E1830] px-5 py-4 flex flex-wrap items-center justify-between gap-4"
+    >
+      <div className="flex items-center gap-3">
+        <Sparkles className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />
+        <div className="text-xs sm:text-sm text-slate-200">
+          <b className="text-amber-300">Utilitas Khusus Admin:</b> Buat cepat 50 data tim dummy beserta 5 pemain inti + 1–2 cadangan ke Database Master.
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {onGenerateDummyTeams && (
+          <button
+            type="button"
+            onClick={onGenerateDummyTeams}
+            className="min-h-[42px] px-4 rounded-xl bg-gradient-to-b from-amber-400 to-amber-600 text-[#0B1325] font-extrabold text-xs sm:text-sm inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+            Buat 50 Data Tim Dummy
+          </button>
+        )}
+        {dummyTeamCount > 0 && onClearDummyTeams && (
+          <button
+            type="button"
+            onClick={onClearDummyTeams}
+            className="min-h-[42px] px-4 rounded-xl border border-rose-400/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 font-bold text-xs sm:text-sm inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" aria-hidden="true" />
+            Hapus Semua Data Dummy ({dummyTeamCount} Tim)
+          </button>
+        )}
+      </div>
+    </section>
+  ) : null;
+
   if (!t) {
     return (
-      <section className={`${card} p-10 text-center space-y-3`}>
-        <h2 className="font-display text-xl font-extrabold">Belum ada turnamen</h2>
-        <p className="text-sm text-slate-300">
-          {isStaff ? 'Buat turnamen pertama untuk mulai menerima pendaftaran.' : 'Panitia belum mempublikasikan turnamen. Silakan kembali lagi nanti.'}
-        </p>
-        {isStaff && <button type="button" onClick={onNew} className={`${btnGold} px-6`}>+ Buat Turnamen Baru</button>}
-      </section>
+      <div className="space-y-6">
+        {adminDummySection}
+        <section className={`${card} p-10 text-center space-y-3`}>
+          <h2 className="font-display text-xl font-extrabold">Belum ada turnamen</h2>
+          <p className="text-sm text-slate-300">
+            {isStaff ? 'Buat turnamen pertama untuk mulai menerima pendaftaran.' : 'Panitia belum mempublikasikan turnamen. Silakan kembali lagi nanti.'}
+          </p>
+          {isStaff && <button type="button" onClick={onNew} className={`${btnGold} px-6`}>+ Buat Turnamen Baru</button>}
+        </section>
+      </div>
     );
   }
 
@@ -75,6 +149,8 @@ export const DashboardView: React.FC<Props> = ({
   const slotPct = Math.min(100, Math.round((approved.length / Math.max(1, t.maxTeams)) * 100));
   const done = matches.filter((m) => m.status === 'completed').length;
   const liveCount = matches.filter((m) => m.status === 'live').length;
+  const heroPosterUrl = getTournamentPosterUrl(t);
+  const activeWaUrl = contactUrl || buildCommitteeWhatsAppUrl(t);
 
   const info: [string, string][] = [
     ['Jadwal', longDate(t.matchDayDate)],
@@ -87,14 +163,7 @@ export const DashboardView: React.FC<Props> = ({
 
   return (
     <div className="space-y-6">
-      {tournaments.length > 1 && (
-        <label className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-          <span className={label}>TURNAMEN</span>
-          <select value={t.id} onChange={(e) => onSelectTournament(e.target.value)} className="min-h-[44px] max-w-full rounded-xl border border-[#24304D] bg-[#0A1224] px-3 text-sm text-slate-100">
-            {tournaments.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
-        </label>
-      )}
+      {adminDummySection}
 
       {isStaff && pendingCount + queueCount > 0 && (
         <section aria-label="Perlu tindakan" className="rounded-2xl border border-[#C98A12] bg-amber-400/10 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -113,16 +182,27 @@ export const DashboardView: React.FC<Props> = ({
 
       {/* Hero turnamen */}
       <section aria-label="Turnamen utama" className={`${card} p-4 sm:p-5 flex flex-wrap gap-6`}>
-        <div className="w-full sm:w-52 h-72 sm:h-[312px] shrink-0 rounded-xl border border-[#C98A12] overflow-hidden bg-gradient-to-br from-blue-900 to-[#0B1325]">
-          {t.posterUrl ? (
-            <img src={t.posterUrl} alt={`Poster ${t.name}`} className="w-full h-full object-cover" />
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
-              <ImageIcon className="w-10 h-10 text-amber-400" aria-hidden="true" />
-              <span className="font-display font-bold text-sm tracking-[0.08em] text-amber-400">POSTER TURNAMEN</span>
-              {isStaff && <span className="text-xs text-slate-300">Unggah lewat Edit Turnamen</span>}
-            </div>
-          )}
+        <div
+          onClick={() => onViewPoster && onViewPoster(t)}
+          title="Klik untuk memperbesar poster turnamen"
+          className="group relative w-full sm:w-52 aspect-[2/3] sm:h-[312px] shrink-0 rounded-xl border border-[#C98A12] overflow-hidden bg-gradient-to-br from-blue-900 to-[#0B1325] cursor-pointer"
+        >
+          <img
+            src={heroPosterUrl}
+            alt={`Poster ${t.name}`}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onViewPoster) onViewPoster(t);
+            }}
+            className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0B1325]/90 hover:bg-amber-400 hover:text-slate-950 text-slate-100 border border-white/20 text-[11px] font-semibold transition-colors cursor-pointer"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            Perbesar
+          </button>
         </div>
 
         <div className="flex-1 basis-[420px] min-w-0 space-y-3.5">
@@ -158,25 +238,93 @@ export const DashboardView: React.FC<Props> = ({
           <div className="flex flex-wrap gap-3 pt-1">
             {isStaff ? (
               <>
-                <button type="button" onClick={onEdit} className={`${btnGold} flex-[2_1_170px]`}>Edit Turnamen</button>
-                <button type="button" onClick={onRegenerate} className={`${btnGhost} flex-[2_1_170px] min-h-[48px]`}>Susun Ulang Bracket</button>
-                <button type="button" onClick={onShare} className={`${btnGhost} flex-[1_1_100px] min-h-[48px]`}>Bagikan</button>
-                <button type="button" onClick={onNew} className="flex-[1_1_100px] min-h-[48px] rounded-xl border border-dashed border-[#C98A12] text-amber-300 font-bold text-[15px] cursor-pointer">+ Turnamen</button>
+                <button type="button" onClick={() => onEdit(t)} className={`${btnGold} flex-[2_1_160px]`}>Edit Turnamen</button>
+                <button type="button" onClick={onRegenerate} className={`${btnGhost} flex-[2_1_160px] min-h-[48px]`}>Susun Ulang Bracket</button>
+                <button type="button" onClick={() => onShare(t)} className={`${btnGhost} flex-[1_1_110px] min-h-[48px]`}>
+                  <Share2 className="w-4 h-4 text-amber-400" />
+                  Bagikan
+                </button>
+                <a
+                  href={activeWaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-[1_1_150px] min-h-[48px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" aria-hidden="true" />
+                  Hubungi Panitia
+                </a>
+                <button type="button" onClick={onNew} className="flex-[1_1_110px] min-h-[48px] rounded-xl border border-dashed border-[#C98A12] text-amber-300 font-bold text-[15px] cursor-pointer">+ Turnamen</button>
               </>
             ) : (
               <>
                 <button type="button" onClick={onRegister} disabled={!canRegister} className={`${btnGold} flex-[2_1_200px]`}>
                   {canRegister ? 'Daftar Sekarang' : 'Pendaftaran Ditutup'}
                 </button>
-                <button type="button" onClick={onShare} className={`${btnGhost} flex-[0_1_120px] min-h-[48px]`}>Bagikan</button>
-                {contactUrl && (
-                  <a href={contactUrl} target="_blank" rel="noopener noreferrer" className="flex-[2_1_200px] min-h-[48px] rounded-xl bg-green-600 hover:bg-green-500 text-white font-bold text-[15px] flex items-center justify-center gap-2">
-                    <MessageCircle className="w-4 h-4" aria-hidden="true" />Hubungi Panitia
-                  </a>
-                )}
+                <button type="button" onClick={() => onShare(t)} className={`${btnGhost} flex-[0_1_130px] min-h-[48px]`}>
+                  <Share2 className="w-4 h-4 text-amber-400" />
+                  Bagikan
+                </button>
+                <a
+                  href={activeWaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-[2_1_200px] min-h-[48px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[15px] flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" aria-hidden="true" />
+                  Hubungi Panitia
+                </a>
               </>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Semua Kartu Turnamen di Dashboard Utama */}
+      <section aria-label="Semua turnamen" className="space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display text-lg font-extrabold tracking-wide text-amber-300 flex items-center gap-2">
+              <Swords className="w-5 h-5 text-amber-400" />
+              SEMUA TURNAMEN ({tournaments.length} EVENT)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Pilih kartu turnamen di bawah untuk melihat detail, Live Bracket, atau memperbesar poster resmi
+            </p>
+          </div>
+          {isStaff && (
+            <button
+              type="button"
+              onClick={onNew}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Buat Turnamen Baru
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {tournaments.map((trn) => {
+            const approvedForCard = regsSource.filter(
+              (r) => r.tournamentId === trn.id && r.status === 'approved'
+            ).length;
+            return (
+              <TournamentPosterCard
+                key={trn.id}
+                tournament={trn}
+                approvedCount={approvedForCard}
+                isSelected={trn.id === t.id}
+                isStaff={isStaff}
+                onSelect={() => onSelectTournament(trn.id)}
+                onViewPoster={() => onViewPoster && onViewPoster(trn)}
+                onShare={() => onShare(trn)}
+                onRegister={onRegister}
+                onViewBracket={() => onGo('bracket')}
+                onEdit={() => onEdit(trn)}
+                onDelete={onDeleteTournament ? () => onDeleteTournament(trn) : undefined}
+              />
+            );
+          })}
         </div>
       </section>
 

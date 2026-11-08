@@ -30,7 +30,7 @@ const FORMATS: { id: BracketFormat; label: string; hint: string }[] = [
 ];
 
 const chip = (on: boolean) =>
-  `px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${on ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'}`;
+  `px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${on ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'}`;
 
 export const BracketAndStandingsView: React.FC<Props> = ({
   tournament,
@@ -159,11 +159,26 @@ export const BracketAndStandingsView: React.FC<Props> = ({
           {canManage && (
             <div className="flex gap-2">
               {!isRR && (
-                <button type="button" onClick={() => setShowSeeding((v) => !v)} className="px-3 py-2 text-xs font-semibold glass-card hover:border-amber-400/50 text-slate-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowSeeding((v) => !v)}
+                  className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    showSeeding
+                      ? 'bg-amber-500 text-slate-950 font-bold'
+                      : 'glass-card hover:border-amber-400/50 text-slate-100'
+                  }`}
+                >
                   Atur Seeding
                 </button>
               )}
-              <button type="button" onClick={onRegenerateBracket} className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold glass-card hover:border-amber-400/50 text-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setRoundFilter('all');
+                  onRegenerateBracket();
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold glass-card hover:border-amber-400/50 active:scale-95 text-slate-100 rounded-lg transition-all cursor-pointer"
+              >
                 <RefreshCw className="w-3.5 h-3.5 text-amber-400" /> Susun Ulang
               </button>
             </div>
@@ -174,7 +189,17 @@ export const BracketAndStandingsView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-wrap gap-1 p-1 bg-[#091122]/90 border border-white/10 rounded-lg">
               {FORMATS.map((f) => (
-                <button key={f.id} type="button" onClick={() => fmt !== f.id && onUpdateSettings({ bracketFormat: f.id })} className={chip(fmt === f.id)}>
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    if (fmt !== f.id) {
+                      setRoundFilter('all');
+                      onUpdateSettings({ bracketFormat: f.id });
+                    }
+                  }}
+                  className={chip(fmt === f.id)}
+                >
                   {f.label}
                 </button>
               ))}
@@ -187,13 +212,13 @@ export const BracketAndStandingsView: React.FC<Props> = ({
               ))}
             </div>
             {fmt === 'single_elimination' && (
-              <label className="inline-flex items-center gap-2 text-xs text-slate-200">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
                 <input type="checkbox" checked={!!tournament.thirdPlaceMatch} onChange={(e) => onUpdateSettings({ thirdPlaceMatch: e.target.checked })} />
                 Perebutan juara 3
               </label>
             )}
             {isDE && (
-              <label className="inline-flex items-center gap-2 text-xs text-slate-200">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
                 <input type="checkbox" checked={!!tournament.grandFinalReset} onChange={(e) => onUpdateSettings({ grandFinalReset: e.target.checked })} />
                 Grand Final 2 laga (reset)
               </label>
@@ -201,7 +226,15 @@ export const BracketAndStandingsView: React.FC<Props> = ({
             {isRR && (
               <div className="flex gap-1 p-1 bg-[#091122]/90 border border-white/10 rounded-lg">
                 {([1, 2, 3] as const).map((n) => (
-                  <button key={n} type="button" onClick={() => onUpdateSettings({ roundRobinCycles: n, bracketFormat: 'single_round_robin' })} className={chip(cycles === n)}>
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => {
+                      setRoundFilter('all');
+                      onUpdateSettings({ roundRobinCycles: n, bracketFormat: 'single_round_robin' });
+                    }}
+                    className={chip(cycles === n)}
+                  >
                     {n}x
                   </button>
                 ))}

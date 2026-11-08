@@ -214,6 +214,8 @@ export function subscribeRegistrations(cb: (r: TournamentRegistration[]) => void
 /** Dipakai staf (upsert) dan pengunjung (hanya membuat dokumen baru berstatus pending; dijaga rules). */
 export const saveRegistration = (r: TournamentRegistration) =>
   setDoc(doc(db, 'registrations', r.id), r);
+export const deleteRegistration = (id: string) =>
+  deleteDoc(doc(db, 'registrations', id));
 
 /** Pendaftaran tim/player ke Database. Pengunjung hanya boleh membuat; staf membaca, menyetujui (hapus), menolak. */
 export const saveSubmission = (s: DbSubmission) => setDoc(doc(db, 'submissions', s.id), s);

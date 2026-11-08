@@ -1,21 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BracketFormat,
   ConditionalRequirement,
   FeeType,
   PaymentMethodConfig,
   Tournament,
+  TournamentRegistration,
 } from '../types/tournament';
 import { readImageCompressed } from '../utils/image';
 import { shiftDate, todayLocal } from '../utils/tournamentStatus';
-import { bracketCapacity, describeSeries, formatIndonesianDate } from '../utils/bracketEngine';
-import { Plus, Trash2, Upload, X, ExternalLink, QrCode, CreditCard, CheckCircle2 } from 'lucide-react';
+import { bracketCapacity, describeSeries, formatIndonesianDate, getDisplayTeamName } from '../utils/bracketEngine';
+import { Plus, Trash2, Upload, X, ExternalLink, CreditCard, CheckCircle2, Users, Search } from 'lucide-react';
 
 interface TournamentFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (tournament: Tournament, regenerateBracket: boolean) => void;
   editingTournament?: Tournament | null;
+  registrations?: TournamentRegistration[];
+  onDeleteRegistration?: (regId: string) => void;
 }
 
 export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
@@ -23,6 +26,8 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   onClose,
   onSave,
   editingTournament,
+  registrations = [],
+  onDeleteRegistration,
 }) => {
   const [name, setName] = useState(
     editingTournament?.name || ''
@@ -130,8 +135,72 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
 
   const [regenerateBracket, setRegenerateBracket] = useState(!editingTournament);
   const [formError, setFormError] = useState('');
+  const [teamSearch, setTeamSearch] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setName(editingTournament?.name || '');
+    setOrganizer(editingTournament?.organizer || '');
+    setPosterUrl(editingTournament?.posterUrl || '');
+    setContactWhatsapp(editingTournament?.contactWhatsapp || '');
+    setDescription(
+      editingTournament?.description ||
+        'Turnamen komunitas & kompetitif Mobile Legends dengan sistem bracket otomatis dan pelaporan statistik individu pemain.'
+    );
+    setStatus(editingTournament?.status || 'registration');
+    setMatchDayDate(editingTournament?.matchDayDate || shiftDate(todayLocal(), 14));
+    setRegistrationCloseDate(editingTournament?.registrationCloseDate || shiftDate(todayLocal(), 13));
+    setTechnicalMeetingDate(editingTournament?.technicalMeetingDate || shiftDate(todayLocal(), 13));
+    setTechnicalMeetingTime(editingTournament?.technicalMeetingTime || '13:00 WIB');
+    setBracketFormat(
+      editingTournament?.bracketFormat === 'double_round_robin'
+        ? 'single_round_robin'
+        : editingTournament?.bracketFormat || 'single_elimination'
+    );
+    setThirdPlaceMatch(!!editingTournament?.thirdPlaceMatch);
+    setGrandFinalReset(!!editingTournament?.grandFinalReset);
+    setRrCycles(
+      editingTournament?.roundRobinCycles ?? (editingTournament?.bracketFormat === 'double_round_robin' ? 2 : 1)
+    );
+    setDefaultBestOf(editingTournament?.defaultBestOf || 1);
+    setVenueType(editingTournament?.venueType || 'Online');
+    setVenueDetail(editingTournament?.venueDetail || 'Custom Lobby MLBB & Discord Server Panitia');
+    setMultiSlot(editingTournament?.multiSlot || 'Multi Slot On');
+    setMaxSlotPerTeam(editingTournament?.maxSlotPerTeam || 2);
+    setSkinRule(editingTournament?.skinRule || 'Skin Bebas');
+    setTierRule(editingTournament?.tierRule || 'All Tier/Rank');
+    setGameMode(editingTournament?.gameMode || 'Custom Draft Pick Mode');
+    setMaxTeams(editingTournament?.maxTeams || 16);
+    setPrizePool(editingTournament?.prizePool || '');
+    setFeeType(editingTournament?.feeType || 'free');
+    setFeeAmount(editingTournament?.feeAmount ?? 0);
+    setPaymentMethods(
+      editingTournament?.paymentMethods && editingTournament.paymentMethods.length > 0
+        ? editingTournament.paymentMethods
+        : []
+    );
+    setConditionalRequirements(
+      editingTournament?.conditionalRequirements && editingTournament.conditionalRequirements.length > 0
+        ? editingTournament.conditionalRequirements
+        : []
+    );
+    setRegenerateBracket(!editingTournament);
+    setFormError('');
+    setTeamSearch('');
+  }, [editingTournament, isOpen]);
 
   if (!isOpen) return null;
+
+  const tournamentRegs = editingTournament
+    ? registrations.filter((r) => r.tournamentId === editingTournament.id)
+    : [];
+  const filteredTournamentRegs = tournamentRegs.filter(
+    (r) =>
+      !teamSearch.trim() ||
+      r.teamName.toLowerCase().includes(teamSearch.toLowerCase()) ||
+      r.teamTag.toLowerCase().includes(teamSearch.toLowerCase()) ||
+      r.captainName.toLowerCase().includes(teamSearch.toLowerCase())
+  );
 
   const handleQrisFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1028,6 +1097,114 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
               </div>
             )}
           </section>
+
+          {/* 5. Daftar Tim Terdaftar & Hapus Tim (Khusus Mode Edit Turnamen) */}
+          {editingTournament && (
+            <section className="space-y-4 pt-4 border-t border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-amber-400" />
+                    05. Daftar Tim Terdaftar di Turnamen Ini ({tournamentRegs.length} Tim)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Disetujui:{' '}
+                    <span className="font-mono font-semibold text-emerald-400">
+                      {tournamentRegs.filter((r) => r.status === 'approved').length}
+                    </span>{' '}
+                    · Pending:{' '}
+                    <span className="font-mono font-semibold text-amber-400">
+                      {tournamentRegs.filter((r) => r.status === 'pending').length}
+                    </span>{' '}
+                    · Ditolak:{' '}
+                    <span className="font-mono font-semibold text-rose-400">
+                      {tournamentRegs.filter((r) => r.status === 'rejected').length}
+                    </span>
+                  </p>
+                </div>
+
+                {tournamentRegs.length > 4 && (
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={teamSearch}
+                      onChange={(e) => setTeamSearch(e.target.value)}
+                      placeholder="Cari nama tim, tag, atau kapten..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-[#0B0F17] border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {tournamentRegs.length === 0 ? (
+                <div className="p-4 bg-[#0B0F17] border border-slate-800 rounded-xl text-center text-xs text-slate-400">
+                  Belum ada tim yang terdaftar pada turnamen ini.
+                </div>
+              ) : filteredTournamentRegs.length === 0 ? (
+                <div className="p-4 bg-[#0B0F17] border border-slate-800 rounded-xl text-center text-xs text-slate-400">
+                  Tidak ada tim yang cocok dengan pencarian "{teamSearch}".
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto pr-1 space-y-2">
+                  {filteredTournamentRegs.map((reg, idx) => (
+                    <div
+                      key={reg.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#0B0F17] border border-slate-800 hover:border-slate-700 rounded-xl transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-7 h-7 rounded-lg bg-slate-800/80 border border-slate-700 flex items-center justify-center font-mono text-xs font-bold text-slate-300 shrink-0">
+                          {reg.seed ?? idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-amber-400">
+                              [{reg.teamTag}]
+                            </span>
+                            <span className="text-xs font-bold text-slate-100 truncate">
+                              {getDisplayTeamName(reg, tournamentRegs)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                                reg.status === 'approved'
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                  : reg.status === 'pending'
+                                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                  : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                              }`}
+                            >
+                              {reg.status === 'approved'
+                                ? 'Disetujui'
+                                : reg.status === 'pending'
+                                ? 'Pending'
+                                : 'Ditolak'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                            Kapten: <span className="text-slate-300">{reg.captainName || '-'}</span> ·{' '}
+                            {reg.corePlayerIds.length} Inti
+                            {reg.subPlayerIds.length > 0 ? ` + ${reg.subPlayerIds.length} Cadangan` : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      {onDeleteRegistration && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteRegistration(reg.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/40 text-rose-200 text-xs font-semibold transition-colors cursor-pointer shrink-0"
+                          title={`Hapus tim [${reg.teamTag}] ${reg.teamName} dari turnamen`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Hapus Tim
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Opsi Regenerate Bracket */}
           <div className="p-3.5 bg-[#0B0F17] border border-slate-800 rounded-lg flex items-center justify-between">
