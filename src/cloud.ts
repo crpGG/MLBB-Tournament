@@ -147,6 +147,7 @@ export interface PublicState {
   players: unknown[];
   matches: unknown[];
   registrations: TournamentRegistration[]; // proyeksi publik: hanya yang disetujui, tanpa kontak & bukti
+  saweriaUrl?: string; // undefined = alamat bawaan, '' = disembunyikan admin
 }
 
 export function subscribeState(onState: (s: PublicState | null) => void, onError: () => void) {

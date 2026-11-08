@@ -40,6 +40,7 @@ import {
   propagateMatchOutcome,
 } from './utils/bracketEngine';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { sessionWallpaper } from './utils/wallpaper';
 import { MLBBLaylaLoginPage } from './components/MLBBLaylaLoginPage';
 import { MLBBAlucardLoadingScreen } from './components/MLBBAlucardLoadingScreen';
 import { TournamentFormModal } from './components/TournamentFormModal';
@@ -51,6 +52,7 @@ import { RegistrationVerificationView } from './components/RegistrationVerificat
 import { PlayerStatsLeaderboardView } from './components/PlayerStatsLeaderboardView';
 import { DatabaseMasterView } from './components/DatabaseMasterView';
 import { UserManagementView } from './components/UserManagementView';
+import { SaweriaSettings } from './components/SaweriaSettings';
 import { TeamPlayerRegistrationView } from './components/TeamPlayerRegistrationView';
 import { AppSidebar, MainTab, NavItem } from './components/AppSidebar';
 import { DashboardView } from './components/DashboardView';
@@ -105,6 +107,13 @@ const toPublicRegs = (regs: TournamentRegistration[]): TournamentRegistration[] 
       seed: r.seed,
     }));
 
+const DEFAULT_SAWERIA_URL = 'https://saweria.co/crpworkss';
+/** Terima 'saweria.co/nama' atau 'https://saweria.co/nama'; selain itu dianggap tidak valid ('' = sembunyikan). */
+function normalizeSaweria(input: string): string {
+  const v = input.trim().replace(/^https?:\/\//i, '');
+  return /^saweria\.co\/[A-Za-z0-9._-]+\/?$/.test(v) ? 'https://' + v.replace(/\/$/, '') : '';
+}
+
 const waLink = (n?: string) => {
   const d = (n || '').replace(/\D/g, '');
   return d.length >= 10 ? `https://wa.me/${d.replace(/^0/, '62')}` : '';
@@ -119,6 +128,8 @@ export default function App() {
   );
   const [matches, setMatches] = useState<Match[]>(SEED ? INITIAL_MATCHES : []);
   const [submissions, setSubmissions] = useState<DbSubmission[]>([]); // antrean pendaftaran ke Database
+  const [wallpaper] = useState(sessionWallpaper); // satu wallpaper per sesi
+  const [saweriaUrl, setSaweriaUrl] = useState<string | undefined>(undefined); // undefined = bawaan, '' = disembunyikan admin
 
   // Alur layar: login -> loading -> lobby. Staf = akun Firebase; selain itu pengunjung.
   const [screenStage, setScreenStage] = useState<ScreenStage>('login');
@@ -182,9 +193,11 @@ export default function App() {
           players: (st?.players || []) as Player[],
           matches: (st?.matches || []) as Match[],
           registrations: st?.registrations || [],
+          saweriaUrl: st?.saweriaUrl,
         };
         lastState.current = stable(core);
         publicRegs.current = core.registrations;
+        setSaweriaUrl(core.saweriaUrl);
         setTournaments(core.tournaments);
         setTeams(core.teams.map((t) => ({ ...t, whatsapp: privateRef.current.teamContacts[t.id] ?? '' })));
         setPlayers(core.players.map((p) => ({ ...p, fullName: privateRef.current.playerNames[p.id] })));
@@ -236,6 +249,7 @@ export default function App() {
       players: players.map(({ fullName: _private, ...p }) => p), // nama lengkap tidak boleh masuk data publik
       matches,
       registrations: toPublicRegs(registrations),
+      saweriaUrl,
     };
     const priv = {
       teamContacts: Object.fromEntries(teams.filter((t) => t.whatsapp).map((t) => [t.id, t.whatsapp])),
@@ -260,7 +274,7 @@ export default function App() {
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [tournaments, teams, players, matches, registrations, staff, stateLoaded, regsLoaded]);
+  }, [tournaments, teams, players, matches, registrations, saweriaUrl, staff, stateLoaded, regsLoaded]);
 
   useEffect(() => {
     if (!cloudEnabled || !staff || !regsLoaded) return;
@@ -585,8 +599,6 @@ export default function App() {
       <MLBBLaylaLoginPage
         onStaffLogin={(profile) => enterLobby(profile)}
         onVisitor={() => enterLobby(null)}
-        tournaments={tournaments}
-        loading={cloudEnabled && !stateLoaded}
       />
     );
   }
@@ -631,6 +643,7 @@ export default function App() {
   ];
   const pageTitle = (navItems.find((i) => i.id === activeTab)?.label || '').toUpperCase();
   const contactUrl = waLink(activeTournament?.contactWhatsapp);
+  const safeSaweria = normalizeSaweria(saweriaUrl ?? DEFAULT_SAWERIA_URL);
 
   const handleShare = async () => {
     const url = window.location.href.split('#')[0];
@@ -649,11 +662,11 @@ export default function App() {
       {/* Ambient Glassy Celestial Background Glows */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <img
-          src="/assets/aistudio/loading_3d66433e.jpg"
+          src={wallpaper}
           alt=""
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover opacity-[0.08] blur-sm scale-105"
+          className="w-full h-full object-cover blur-[6px] scale-105"
         />
+        <div className="absolute inset-0 bg-[#050A16]/65" />
         <div className="absolute -top-40 -left-40 w-[34rem] h-[34rem] rounded-full bg-sky-500/15 blur-[130px]" />
         <div className="absolute top-1/3 -right-40 w-[32rem] h-[32rem] rounded-full bg-amber-500/12 blur-[140px]" />
         <div className="absolute -bottom-40 left-1/3 w-[36rem] h-[28rem] rounded-full bg-cyan-500/10 blur-[130px]" />
@@ -664,7 +677,7 @@ export default function App() {
         active={activeTab}
         onSelect={setActiveTab}
         isStaff={Boolean(staff)}
-        contactUrl={contactUrl}
+        saweriaUrl={safeSaweria}
         bestOf={activeTournament?.defaultBestOf ?? 1}
       />
 
@@ -685,7 +698,7 @@ export default function App() {
       </AnimatePresence>
 
       <main className="w-full max-w-[1240px] mx-auto px-4 sm:px-8 py-6 space-y-6 flex-1">
-        <header className="rounded-[18px] border border-[#24304D] bg-[#0E1830] px-5 sm:px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+        <header className="glass-bar rounded-[18px] px-5 sm:px-6 py-5 flex flex-wrap items-center justify-between gap-4">
           <div>
             <span
               className={`inline-block pl-2.5 pr-3.5 py-1 text-xs font-extrabold tracking-wider text-[#0B1325] ${staff ? 'bg-sky-400' : 'bg-amber-400'}`}
@@ -1161,9 +1174,33 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'users' && isAdmin && <UserManagementView currentUsername={staff?.username || ''} />}
+            {activeTab === 'users' && isAdmin && (
+              <div className="space-y-6">
+                <SaweriaSettings
+                  value={saweriaUrl ?? DEFAULT_SAWERIA_URL}
+                  onSave={(v) => {
+                    setSaweriaUrl(v);
+                    showToast(v ? 'Alamat Saweria disimpan.' : 'Tombol Saweria disembunyikan.');
+                  }}
+                />
+                <UserManagementView currentUsername={staff?.username || ''} />
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
+
+        {safeSaweria && (
+          <footer className="pt-4 flex items-center justify-center">
+            <a
+              href={safeSaweria}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#FA8231] text-[#FA8231] hover:bg-[#FA8231]/10 font-bold text-xs sm:text-sm px-3.5 py-2 transition-colors"
+            >
+              <span aria-hidden="true">♥</span> Suka aplikasi ini? Dukung kami di Saweria
+            </a>
+          </footer>
+        )}
       </main>
       </div>
 
