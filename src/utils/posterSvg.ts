@@ -4,12 +4,18 @@ import { calculateStandings, getChampion } from './bracketEngine';
 export const POSTER_W = 1080;
 export const POSTER_H = 1350;
 
-export interface PosterTheme { id: string; label: string; bg1: string; bg2: string; accent: string; text: string }
+export interface PosterTheme {
+  id: string; label: string; bg1: string; bg2: string; accent: string; text: string;
+  panel: string; panel2: string; ptext: string; dark: string; bar: string; barText: string; glow: string;
+}
+const T = (id: string, label: string, bg1: string, bg2: string, accent: string, panel: string, panel2: string, dark: string, text = '#FFFFFF'): PosterTheme =>
+  ({ id, label, bg1, bg2, accent, text, panel, panel2, ptext: '#FFFFFF', dark, bar: '#FFFFFF', barText: dark, glow: accent });
 export const POSTER_THEMES: PosterTheme[] = [
-  { id: 'gold', label: 'Emas ArenaDawn', bg1: '#0B1325', bg2: '#1B2A4E', accent: '#F5B93A', text: '#FFFFFF' },
-  { id: 'crimson', label: 'Crimson', bg1: '#1a0508', bg2: '#4a0d18', accent: '#FF4D5E', text: '#FFFFFF' },
-  { id: 'cyan', label: 'Cyan Neon', bg1: '#021a22', bg2: '#06404f', accent: '#22D3EE', text: '#FFFFFF' },
-  { id: 'violet', label: 'Violet', bg1: '#12082b', bg2: '#33176b', accent: '#A78BFA', text: '#FFFFFF' },
+  T('violet', 'Ungu Galaxy', '#12062E', '#3A1596', '#FF5FA8', '#5B2BC4', '#3B1E8C', '#1A0B3D'),
+  T('gold', 'Gelap ArenaDawn', '#0B1120', '#1B2A4E', '#F5B93A', '#243763', '#16213A', '#0B1120'),
+  T('crimson', 'Crimson Night', '#14060A', '#4A0D18', '#FF3B57', '#7A1A2E', '#4A0D18', '#14060A'),
+  T('cyan', 'Cyan Neon', '#021A22', '#06404F', '#22D3EE', '#0E6A80', '#08414F', '#021A22'),
+  T('terang', 'Terang Esports', '#F1F4F9', '#D5DDEB', '#E63946', '#1F2430', '#2F3646', '#0F1115', '#0F1115'),
 ];
 
 export const esc = (s: string) =>
@@ -36,8 +42,8 @@ export function getPodium(t: Tournament, matches: Match[], regs: TournamentRegis
   return [champ, second, third];
 }
 
-type Imgs = Record<string, string>; // url asli -> data URL (kosong = pakai url asli)
-const href = (src: string | undefined, imgs: Imgs) => (src ? imgs[src] ?? src : '');
+export type Imgs = Record<string, string>; // url asli -> data URL (kosong = pakai url asli)
+export const href = (src: string | undefined, imgs: Imgs) => (src ? imgs[src] ?? src : '');
 
 const frame = (th: PosterTheme, t: Tournament, kicker: string, body: string) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${POSTER_W} ${POSTER_H}" font-family="Arial, Helvetica, sans-serif">
 <defs>
@@ -153,7 +159,31 @@ export async function inlineImages(urls: (string | undefined)[]): Promise<Imgs> 
   return out;
 }
 
-export async function exportJpeg(svg: string, filename: string) {
+let fontCss: Promise<string> | null = null;
+/** Huruf poster ditanam ke SVG (data URI) karena gambar SVG tidak bisa memakai huruf halaman. Gagal = pakai huruf cadangan. */
+function embeddedFonts(): Promise<string> {
+  fontCss ||= (async () => {
+    try {
+      const css = await (await fetch('https://fonts.googleapis.com/css2?family=Anton&family=Rajdhani:wght@500;600;700&display=swap')).text();
+      const blocks = css.split('/* ').filter((b) => b.startsWith('latin */'));
+      const out = await Promise.all(blocks.map(async (b) => {
+        const m = /url\((https:[^)]+)\)/.exec(b);
+        if (!m) return '';
+        const blob = await (await fetch(m[1])).blob();
+        const data = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(blob); });
+        return b.slice(b.indexOf('@font-face')).replace(m[0], `url(${data})`);
+      }));
+      return out.join('\n');
+    } catch {
+      return '';
+    }
+  })();
+  return fontCss;
+}
+
+export async function exportJpeg(svg: string, filename: string, w = POSTER_W, h = POSTER_H) {
+  const fonts = await embeddedFonts();
+  if (fonts) svg = svg.replace(/(<svg[^>]*>)/, `$1<style>${fonts}</style>`);
   const img = new Image();
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
   try {
@@ -163,9 +193,9 @@ export async function exportJpeg(svg: string, filename: string) {
       img.src = url;
     });
     const c = document.createElement('canvas');
-    c.width = POSTER_W;
-    c.height = POSTER_H;
-    c.getContext('2d')!.drawImage(img, 0, 0, POSTER_W, POSTER_H);
+    c.width = w;
+    c.height = h;
+    c.getContext('2d')!.drawImage(img, 0, 0, w, h);
     const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.92));
     if (!blob) throw new Error('export gagal');
     const a = document.createElement('a');
